@@ -1,0 +1,4 @@
+# websockets
+# SimpleWebSocketServer
+python-socketio
+eventlet

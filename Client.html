@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Multiverse Client</title>
+    <style>
+        body {
+            width: 600px;
+            height: auto;
+            margin: 0 auto;
+            padding: 30px;
+        }
+
+        input {
+            display: block;
+            min-width: 400px;
+            min-height: 30px;
+
+        }
+
+        div {
+            padding: 10px;
+        }
+
+        select {
+            min-width: 400px;
+            min-height: 30px;
+        }
+
+        .chat-send input {
+            width: 400px;
+        }
+
+        .chat-history {
+            display: block;
+            border: 1px solid gray;
+        }
+
+    </style>
+
+    <script type="text/javascript" src="socket.io.js"></script>
+</head>
+<body>
+
+<div class="user-info">
+
+</div>
+
+<div class="user-list">
+    <div>Select User to Chat!</div>
+    <select>
+        <option value="">---Select---</option>
+    </select>
+</div>
+
+<div class="chat-send">
+    <input type="text" placeholder="Type your message and press enter."/>
+</div>
+
+<div class="chat-history">
+
+</div>
+
+
+<script>
+    user_info_dom = document.querySelector(".user-info");
+    user_list_dom = document.querySelector(".user-list select");
+    user_send_message_dom = document.querySelector(".chat-send input");
+    user_chat_history_dom = document.querySelector(".chat-history");
+
+    let appname = "telemesh";
+
+    let name = prompt("What will be your name?", "");
+
+    if (name == null || name.length === 0) {
+        alert("A name Required.");
+        window.location.reload();
+    }
+
+    let socket = io('http://localhost:5000');
+    let connected = false;
+
+    socket.on('connect', function () {
+        console.log("Connected as " + name);
+        connected = true;
+        user_info_dom.innerHTML = "Welcome "+ name+"!";
+    });
+
+    //events
+    socket.on('user_list', function (data) {
+        console.log(data);
+        data = JSON.parse(data);
+        for (let a = 0; a < user_list_dom.options.length; a++) {
+            user_list_dom.options.remove(a);
+        }
+
+        for (let i = 0; i < data.length; i++) {
+            if (data[i] !== name) {
+                let opt = document.createElement('option');
+                opt.innerHTML = data[i];
+                opt.value = data[i];
+                user_list_dom.append(opt);
+            }
+
+        }
+    });
+
+    socket.on('register', function (data) {
+        console.log(data);
+        socket.emit("register", appname, name);
+    });
+
+    socket.on('new_message', function (data) {
+        console.log(data);
+        console.log("----new message----");
+        //socket.emit("register", appname, name);
+        data = JSON.parse(data)
+        user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
+                    "<div class='chat'><span class='me'>" + data.sender + ": </span>" +
+                    "<span class='text'>" + data.text + "</span></div>";
+    });
+
+    socket.on('disconnect', function () {
+        connected = false;
+        console.log("Disconnected.");
+        alert("Connection closed");
+        window.location.reload();
+    });
+
+
+
+    //actions from clients
+    user_send_message_dom.onkeypress = function (event) {
+        if (event.key === 'Enter' && connected === true) {
+            let msg = user_send_message_dom.value;
+            let timeStampInMs = window.performance && window.performance.now && window.performance.timing && window.performance.timing.navigationStart ? window.performance.now() + window.performance.timing.navigationStart : Date.now();
+            let message = JSON.stringify({
+                action: "send",
+                receiver: user_list_dom.options[user_list_dom.selectedIndex].value,
+                text: msg, txn: timeStampInMs, app: appname
+            });
+            socket.emit('send_message', appname, name, message);
+            user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
+                    "<div class='chat'><span class='me'>Me: </span>" +
+                    "<span class='text'>" + msg + "</span></div>";
+
+            user_send_message_dom.value = '';
+        }
+    };
+
+
+    /*user_list_dom.onclick = function (event) {
+        socket.emit('get_user_list');
+    }*/
+
+</script>
+</body>
+</html>
