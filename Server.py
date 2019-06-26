@@ -1,8 +1,9 @@
-from json import dumps as json_string, loads as json_dict
 from eventlet.wsgi import server as eventlet_server
 from eventlet import listen as eventlet_listen
 from socketio import Server, WSGIApp
 from socketio.exceptions import ConnectionRefusedError
+
+from helpers import parse_message, set_json, push_user_list
 
 sio = Server()
 app = WSGIApp(sio)
@@ -10,27 +11,20 @@ app = WSGIApp(sio)
 SESSIONS = dict()
 SOC_SESSIONS = dict()
 SCOPE_WHITE_LIST = {"telemesh"}
+MSG_QUEUE = dict()
+ACK_QUEUE = dict()
 
-
-def push_user_list(sid):
-    user_list = []
-    valid_info = SESSIONS.get(sid)
-    if valid_info:
-        scope = valid_info["scope"]
-        for keyid, info in SESSIONS.items():
-            if scope == info["scope"]:
-                user_list.append(info['address'])
-    print(user_list)
-    return user_list
+EMIT_REGISTER = "register"
+EMIT_USER_LIST = "user_list"
+EMIT_NEW_MESSAGE = "new_message"
+EMIT_SENT_ACK = "sent_ack"
+EMIT_RCV_ACK = "rcv_ack"
 
 
 @sio.event
 def connect(sid, env):
-    sio.emit("register")
-
-
-def parse_message(msg):
-    return json_dict(msg)
+    sio.emit(EMIT_REGISTER)
+    print("connected-->", sid)
 
 
 @sio.event
@@ -42,7 +36,6 @@ def register(sid: str, scope: str, address: str):
     sid = sid.strip()
     scope = scope.strip()
     address = address.strip()
-
     if sid and scope and address:
         user_address = SESSIONS.get(sid)
         if user_address:
@@ -52,7 +45,43 @@ def register(sid: str, scope: str, address: str):
             SESSIONS[sid] = {"scope": scope, "address": address}
             SOC_SESSIONS[address + scope] = sid
 
-        sio.emit("user_list", json_string(push_user_list(sid)))
+        sio.emit(EMIT_USER_LIST, set_json(push_user_list(sid, SESSIONS)))
+
+        new_message = MSG_QUEUE.get(scope)
+        if new_message:
+            new_message = new_message.get(address)
+            if new_message:
+                for msg in new_message:
+                    sio.emit(EMIT_NEW_MESSAGE, msg, room=sid)
+                    # For ack
+                    msg = parse_message(msg)
+                    receiver = SOC_SESSIONS.get(msg['sender'] + scope)
+                    ack_ready_msg = set_json(dict(txn=msg["txn"], scope=scope))
+                    if receiver:
+                        sio.emit(EMIT_RCV_ACK,ack_ready_msg, room=receiver)
+                    else:
+                        ack_queue = ACK_QUEUE.get(scope)
+                        if ack_queue:
+                            ack_queue = ack_queue.get(msg['sender'])
+                            if ack_queue:
+                                ack_queue.append(ack_ready_msg)
+                                ACK_QUEUE[scope].update({msg['sender']: ack_queue})
+                            else:
+                                ACK_QUEUE[scope].update({msg['sender']: [ack_ready_msg]})
+                        else:
+                            ACK_QUEUE[scope] = {msg['sender']: [ack_ready_msg]}
+
+                # clear Receiver Message Queue if session available.
+                MSG_QUEUE[scope].update({address: []})
+
+        # send message ack if any to connected session
+        new_ack = ACK_QUEUE.get(scope)
+        if new_ack:
+            new_ack = new_ack.get(address)
+            if new_ack:
+                for ack in new_ack:
+                    sio.emit(EMIT_RCV_ACK, ack, room=sid)
+                ACK_QUEUE[scope].update({address: []})
 
 
 @sio.event
@@ -61,32 +90,44 @@ def send_message(sid, scope, address, message):
     if user_address and user_address['scope'] == scope and user_address['address'] == address:
         print('Name=', address, "Message=", message)
         msg = parse_message(message)
-        print(msg)
         action = msg['action']
 
         if action == "send":
             receiver = SOC_SESSIONS.get(msg['receiver']+scope)
-            print(receiver)
+            send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'], "sender": address})
             if receiver:
-                sio.emit("new_message",
-                         json_string({"txn": msg["txn"], "text": msg['text'], "sender": address}),
+                sio.emit(EMIT_NEW_MESSAGE,
+                         send_ready_msg,
                          room=receiver)
-                print("sent...!")
+                sio.emit(EMIT_RCV_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
+            else:
+                msg_queue = MSG_QUEUE.get(scope)
+                if msg_queue:
+                    msg_queue = msg_queue.get(msg["receiver"])
+                    if msg_queue:
+                        msg_queue.append(send_ready_msg)
+                        MSG_QUEUE[scope].update({msg["receiver"]: msg_queue})
+                    else:
+                        MSG_QUEUE[scope].update({msg["receiver"]: [send_ready_msg]})
+                else:
+                    MSG_QUEUE[scope] = {msg["receiver"]: [send_ready_msg]}
+
+                sio.emit(EMIT_SENT_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
 
 
 @sio.event
 def get_user_list(sid):
-    sio.emit("user_list", json_string(push_user_list(sid)))
+    sio.emit(EMIT_USER_LIST, set_json(push_user_list(sid, SESSIONS)))
 
 
 @sio.event
 def disconnect(sid):
-    print('disconnect ', sid)
+    print('disconnected-->', sid)
     user_info = SESSIONS.get(sid)
     if user_info:
         del SOC_SESSIONS[user_info["address"]+user_info["scope"]]
         del SESSIONS[sid]
-        sio.emit("user_list", json_string(push_user_list(sid)))
+        sio.emit(EMIT_USER_LIST, set_json(push_user_list(sid, SESSIONS)))
 
 
 if __name__ == '__main__':

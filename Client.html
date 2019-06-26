@@ -36,6 +36,19 @@
             border: 1px solid gray;
         }
 
+        .chat .status {
+            float: right;
+        }
+
+        .chat .me {
+            font-weight: bold;
+            color: blue;
+        }
+
+        .others-msg {
+            background: powderblue;
+        }
+
     </style>
 
     <script type="text/javascript" src="socket.io.js"></script>
@@ -57,8 +70,15 @@
     <input type="text" placeholder="Type your message and press enter."/>
 </div>
 
-<div class="chat-history">
+<div>
+    <div>
+        <h3>Chat
+            <History></History>
+        </h3>
+    </div>
+    <div class="chat-history">
 
+    </div>
 </div>
 
 
@@ -67,6 +87,17 @@
     user_list_dom = document.querySelector(".user-list select");
     user_send_message_dom = document.querySelector(".chat-send input");
     user_chat_history_dom = document.querySelector(".chat-history");
+    let sent = "✓";
+    let delivered = "✓✓";
+
+    EMIT_RCV_ACK = "rcv_ack";
+    EMIT_SENT_ACK = "sent_ack";
+    EMIT_CONNECT = "connect";
+    EMIT_DISCONNECT = "disconnect";
+    EMIT_USER_LIST = "user_list";
+    EMIT_REGISTER = "register";
+    EMIT_NEW_MESSAGE = "new_message";
+    EMIT_SEND_MESSAGE = "send_message";
 
     let appname = "telemesh";
 
@@ -80,16 +111,19 @@
     let socket = io('http://localhost:5000');
     let connected = false;
 
-    socket.on('connect', function () {
+    socket.on(EMIT_CONNECT, function () {
+        console.log(EMIT_CONNECT);
         console.log("Connected as " + name);
         connected = true;
-        user_info_dom.innerHTML = "Welcome "+ name+"!";
+        user_info_dom.innerHTML = "<h1>Welcome " + name + "!</h1>";
     });
 
     //events
-    socket.on('user_list', function (data) {
+    socket.on(EMIT_USER_LIST, function (data) {
+        console.log(EMIT_USER_LIST);
         console.log(data);
         data = JSON.parse(data);
+
         for (let a = 0; a < user_list_dom.options.length; a++) {
             user_list_dom.options.remove(a);
         }
@@ -105,52 +139,86 @@
         }
     });
 
-    socket.on('register', function (data) {
+    socket.on(EMIT_REGISTER, function (data) {
+        console.log(EMIT_REGISTER);
         console.log(data);
-        socket.emit("register", appname, name);
+        socket.emit(EMIT_REGISTER, appname, name);
     });
 
-    socket.on('new_message', function (data) {
+    socket.on(EMIT_NEW_MESSAGE, function (data) {
+
+        console.log(EMIT_NEW_MESSAGE);
         console.log(data);
-        console.log("----new message----");
-        //socket.emit("register", appname, name);
-        data = JSON.parse(data)
+        data = JSON.parse(data);
+
         user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
-                    "<div class='chat'><span class='me'>" + data.sender + ": </span>" +
-                    "<span class='text'>" + data.text + "</span></div>";
+            "<div class='chat others-msg'><span class='me'>" + data.sender + ": </span>" +
+            "<span class='text'>" + data.text + "</span></div>";
     });
 
-    socket.on('disconnect', function () {
+    socket.on(EMIT_RCV_ACK, function (data) {
+        console.log(EMIT_RCV_ACK);
+        console.log(data);
+
+        data = JSON.parse(data);
+        let ack_dom = document.getElementById(data.scope + data.txn);
+        ack_dom.innerHTML = delivered;
+    });
+
+    socket.on(EMIT_SENT_ACK, function (data) {
+        console.log(EMIT_SENT_ACK);
+        console.log(data);
+
+        data = JSON.parse(data);
+        let ack_dom = document.getElementById(data.scope + data.txn);
+        ack_dom.innerHTML = sent;
+    });
+
+    socket.on(EMIT_DISCONNECT, function () {
+        console.log(EMIT_DISCONNECT);
         connected = false;
-        console.log("Disconnected.");
-        alert("Connection closed");
+
+        alert("Connection closed.");
         window.location.reload();
     });
 
 
-
     //actions from clients
     user_send_message_dom.onkeypress = function (event) {
-        if (event.key === 'Enter' && connected === true) {
-            let msg = user_send_message_dom.value;
-            let timeStampInMs = window.performance && window.performance.now && window.performance.timing && window.performance.timing.navigationStart ? window.performance.now() + window.performance.timing.navigationStart : Date.now();
-            let message = JSON.stringify({
-                action: "send",
-                receiver: user_list_dom.options[user_list_dom.selectedIndex].value,
-                text: msg, txn: timeStampInMs, app: appname
-            });
-            socket.emit('send_message', appname, name, message);
-            user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
-                    "<div class='chat'><span class='me'>Me: </span>" +
-                    "<span class='text'>" + msg + "</span></div>";
+         console.log(EMIT_SEND_MESSAGE);
+        if (event.key === 'Enter') {
 
-            user_send_message_dom.value = '';
+            let msg = user_send_message_dom.value;
+            let user_option_dom = user_list_dom.options[user_list_dom.selectedIndex];
+            let recv = '';
+            if (user_option_dom !== undefined) {
+                recv = user_option_dom.value;
+            }
+            if (connected === true && msg !== '' && recv !== '') {
+
+                let timeStampInMs = window.performance && window.performance.now && window.performance.timing && window.performance.timing.navigationStart ? window.performance.now() + window.performance.timing.navigationStart : Date.now();
+                let message = JSON.stringify({
+                    action: "send",
+                    receiver: recv,
+                    text: msg, txn: timeStampInMs, app: appname
+                });
+                socket.emit(EMIT_SEND_MESSAGE, appname, name, message);
+                user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
+                    "<div class='chat'><span class='me'>Me: </span>" +
+                    "<span class='text'>" + msg + "</span>" +
+                    "<span class='status' id='" + appname + timeStampInMs + "'></span></div>";
+
+                user_send_message_dom.value = '';
+                console.log("send message set!");
+            } else {
+                alert("Receiver and Message Missing!");
+            }
         }
+
     };
 
-
     /*user_list_dom.onclick = function (event) {
-        socket.emit('get_user_list');
+        socket.emit(EMIT_USER_LIST);
     }*/
 
 </script>
