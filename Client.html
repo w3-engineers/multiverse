@@ -51,7 +51,7 @@
 
     </style>
 
-    <script type="text/javascript" src="socket.io.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js"></script>
 </head>
 <body>
 
@@ -108,7 +108,7 @@
         window.location.reload();
     }
 
-    let socket = io('http://localhost:5000');
+    let socket = io('https://multiverse.w3engineers.com/');
     let connected = false;
 
     socket.on(EMIT_CONNECT, function () {
