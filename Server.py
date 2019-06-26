@@ -23,7 +23,12 @@ EMIT_RCV_ACK = "rcv_ack"
 
 @sio.event
 def connect(sid, env):
-    sio.emit(EMIT_REGISTER)
+    check_duplicate = SESSIONS.get(sid)
+    if check_duplicate:
+        # sio.disconnect(check_duplicate)
+        print("Duplicate connection found for->", sid, check_duplicate)  # "As:: ", check_duplicate, " Closed!")
+
+    sio.emit(EMIT_REGISTER, room=sid)
     print("connected-->", sid)
 
 
@@ -36,6 +41,12 @@ def register(sid: str, scope: str, address: str):
     sid = sid.strip()
     scope = scope.strip()
     address = address.strip()
+
+    check_duplicate = SOC_SESSIONS.get(address+scope)
+    if check_duplicate:
+        print("Duplicate found for->", address, " with SID:: ", check_duplicate)
+        sio.disconnect(check_duplicate)
+
     if sid and scope and address:
         user_address = SESSIONS.get(sid)
         if user_address:
@@ -57,6 +68,7 @@ def register(sid: str, scope: str, address: str):
                     msg = parse_message(msg)
                     receiver = SOC_SESSIONS.get(msg['sender'] + scope)
                     ack_ready_msg = set_json(dict(txn=msg["txn"], scope=scope))
+
                     if receiver:
                         sio.emit(EMIT_RCV_ACK,ack_ready_msg, room=receiver)
                     else:
@@ -83,6 +95,9 @@ def register(sid: str, scope: str, address: str):
                     sio.emit(EMIT_RCV_ACK, ack, room=sid)
                 ACK_QUEUE[scope].update({address: []})
 
+    print("SOCKET::", SOC_SESSIONS)
+    print("SESSION::", SESSIONS)
+
 
 @sio.event
 def send_message(sid, scope, address, message):
@@ -95,6 +110,7 @@ def send_message(sid, scope, address, message):
         if action == "send":
             receiver = SOC_SESSIONS.get(msg['receiver']+scope)
             send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'], "sender": address})
+            print("Receiver", receiver, "For::", msg["receiver"])
             if receiver:
                 sio.emit(EMIT_NEW_MESSAGE,
                          send_ready_msg,
@@ -122,11 +138,12 @@ def get_user_list(sid):
 
 @sio.event
 def disconnect(sid):
-    print('disconnected-->', sid)
+
     user_info = SESSIONS.get(sid)
     if user_info:
         del SOC_SESSIONS[user_info["address"]+user_info["scope"]]
         del SESSIONS[sid]
+        print('disconnected-->', sid, ": ", user_info["address"])
         sio.emit(EMIT_USER_LIST, set_json(push_user_list(sid, SESSIONS)))
 
 
