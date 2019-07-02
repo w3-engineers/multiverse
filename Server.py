@@ -25,11 +25,9 @@ EMIT_RCV_ACK = "rcv_ack"
 def connect(sid, env):
     check_duplicate = SESSIONS.get(sid)
     if check_duplicate:
-        # sio.disconnect(check_duplicate)
         print("Duplicate connection found for->", sid, check_duplicate)  # "As:: ", check_duplicate, " Closed!")
 
     sio.emit(EMIT_REGISTER, room=sid)
-    print("connected-->", sid)
 
 
 @sio.event
