@@ -1,12 +1,24 @@
+from logging import basicConfig, CRITICAL  # , debug as trace_debug, info as trace_info, DEBUG as LOG_DEBUG, INFO as LOG_INFO
 from eventlet.wsgi import server as eventlet_server
 from eventlet import listen as eventlet_listen
 from socketio import Server, WSGIApp
-from socketio.exceptions import ConnectionRefusedError
+from socketio.exceptions import ConnectionRefusedError, ConnectionError
 
-from helpers import parse_message, set_json, push_user_list
+from config import DEBUG, HOST, PORT
+from helpers import parse_message, set_json, \
+    push_user_list, set_session, remove_session,\
+    get_session, get_user_message, save_send_message,\
+    update_message_ack, trace_info, trace_debug, get_server_socket
+
+# if DEBUG:
+#     basicConfig(level=LOG_DEBUG)
+# else:
+#     basicConfig(level=LOG_INFO)
+basicConfig(level=CRITICAL)
 
 sio = Server()
 app = WSGIApp(sio)
+# dbo.connect()
 
 SESSIONS = dict()
 SOC_SESSIONS = dict()
@@ -19,134 +31,136 @@ EMIT_USER_LIST = "user_list"
 EMIT_NEW_MESSAGE = "new_message"
 EMIT_SENT_ACK = "sent_ack"
 EMIT_RCV_ACK = "rcv_ack"
+EMIT_BUYER_RCV = "buyer_received"
+EMIT_BUYER_RCV_ACK = "buyer_received_ack"
 
 
 @sio.event
 def connect(sid, env):
     check_duplicate = SESSIONS.get(sid)
     if check_duplicate:
-        print("Duplicate connection found for->", sid, check_duplicate)  # "As:: ", check_duplicate, " Closed!")
-
+        trace_debug("Duplicate connection->{}, {}".format(sid, check_duplicate))
+        # "As:: ", check_duplicate, " Closed!")
     sio.emit(EMIT_REGISTER, room=sid)
 
 
 @sio.event
 def register(sid: str, scope: str, address: str):
-    if scope not in SCOPE_WHITE_LIST:
-        sio.disconnect(sid)
-        raise ConnectionRefusedError("Scope is invalid.")
-
-    sid = sid.strip()
-    scope = scope.strip()
-    address = address.strip()
-
-    check_duplicate = SOC_SESSIONS.get(address+scope)
-    if check_duplicate:
-        print("Duplicate found for->", address, " with SID:: ", check_duplicate)
-        sio.disconnect(check_duplicate)
-
     if sid and scope and address:
-        user_address = SESSIONS.get(sid)
-        if user_address:
-            SESSIONS[sid].update({"scope": scope, "address": address})
-            SOC_SESSIONS.update({address+scope: sid})
-        else:
-            SESSIONS[sid] = {"scope": scope, "address": address}
-            SOC_SESSIONS[address + scope] = sid
 
-        sio.emit(EMIT_USER_LIST, set_json(push_user_list(sid, SESSIONS)))
+        sid = sid.strip()
+        scope = scope.strip()
+        address = address.strip()
 
-        new_message = MSG_QUEUE.get(scope)
-        if new_message:
-            new_message = new_message.get(address)
+        if scope not in SCOPE_WHITE_LIST:
+            sio.disconnect(sid)
+            raise ConnectionRefusedError("Scope is invalid.")
+
+        user_session = get_session(scope, address)
+        if user_session and user_session.is_online == 1:
+            trace_debug("Duplicate connection->{}, {}".format(user_session.address, user_session.sid))
+            try:
+                if get_server_socket(sio, user_session.sid):
+                    sio.disconnect(user_session.sid)
+            except KeyError as e:
+                trace_debug(str(e) + "-->Nothing to close!")
+
+        user_session = set_session(sid, scope, address)
+        if user_session:
+            user_session = get_session(scope, address)
+        if user_session:
+            sio.emit(EMIT_USER_LIST, set_json(push_user_list(scope)))
+
+            new_message = get_user_message(user_session)
             if new_message:
+                receiver = None
                 for msg in new_message:
-                    sio.emit(EMIT_NEW_MESSAGE, msg, room=sid)
+                    sio.emit(EMIT_NEW_MESSAGE, msg.message, room=sid)
+
                     # For ack
-                    msg = parse_message(msg)
-                    receiver = SOC_SESSIONS.get(msg['sender'] + scope)
-                    ack_ready_msg = set_json(dict(txn=msg["txn"], scope=scope))
 
-                    if receiver:
-                        sio.emit(EMIT_RCV_ACK,ack_ready_msg, room=receiver)
-                    else:
-                        ack_queue = ACK_QUEUE.get(scope)
-                        if ack_queue:
-                            ack_queue = ack_queue.get(msg['sender'])
-                            if ack_queue:
-                                ack_queue.append(ack_ready_msg)
-                                ACK_QUEUE[scope].update({msg['sender']: ack_queue})
-                            else:
-                                ACK_QUEUE[scope].update({msg['sender']: [ack_ready_msg]})
-                        else:
-                            ACK_QUEUE[scope] = {msg['sender']: [ack_ready_msg]}
+                    msg = parse_message(msg.message)
+                    # receiver = SOC_SESSIONS.get(msg['sender'] + scope)
+                    if receiver and receiver.user_id.address != msg['sender']:
+                        receiver = get_session(scope, msg['sender'])
 
-                # clear Receiver Message Queue if session available.
-                MSG_QUEUE[scope].update({address: []})
+                    ack_msg = dict(txn=msg["txn"], scope=scope)
+                    ack_ready_msg = set_json(ack_msg)
 
-        # send message ack if any to connected session
-        new_ack = ACK_QUEUE.get(scope)
-        if new_ack:
-            new_ack = new_ack.get(address)
-            if new_ack:
-                for ack in new_ack:
-                    sio.emit(EMIT_RCV_ACK, ack, room=sid)
-                ACK_QUEUE[scope].update({address: []})
-
-    print("SOCKET::", SOC_SESSIONS)
-    print("SESSION::", SESSIONS)
+                    if receiver and get_server_socket(sio, receiver.sid):
+                        sio.emit(EMIT_RCV_ACK, ack_ready_msg, room=receiver.id)
+                        # update_message_ack(ack_msg['txn'], receiver, MESSAGE_STATUS['seller'])
+    else:
+        trace_debug("Invalid Request. Address: {}, Session: {}, App:: {}".format(address, sid, scope))
+        # sio.disconnect(sid)
+        raise ConnectionRefusedError("Scope/Address/SID missing.")
 
 
 @sio.event
 def send_message(sid, scope, address, message):
-    user_address = SESSIONS.get(sid)
-    if user_address and user_address['scope'] == scope and user_address['address'] == address:
-        print('Name=', address, "Message=", message)
+    user_session = get_session(scope, address)
+    if user_session.sid == sid:
+        trace_debug("Name={}. Message={}".format(address, message))
         msg = parse_message(message)
-        action = msg['action']
+        receiver = get_session(scope, msg['receiver'], False)
+        if not receiver:
+            sio.disconnect(sid)
+            raise ConnectionRefusedError("User your tried was invalid ({}, {})".format(scope, address))
+        send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'], "sender": address})
+        trace_debug("Receiver={}, Message=".format(receiver.address, send_ready_msg))
+        save_message = None
+        if receiver:
+            save_message = save_send_message(receiver, msg['txn'], send_ready_msg)
+        if not save_message:
+            raise ConnectionError("Message storage refused to save stuff. ({})".format(save_message))
 
-        if action == "send":
-            receiver = SOC_SESSIONS.get(msg['receiver']+scope)
-            send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'], "sender": address})
-            print("Receiver", receiver, "For::", msg["receiver"])
-            if receiver:
-                sio.emit(EMIT_NEW_MESSAGE,
-                         send_ready_msg,
-                         room=receiver)
-                sio.emit(EMIT_RCV_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
-            else:
-                msg_queue = MSG_QUEUE.get(scope)
-                if msg_queue:
-                    msg_queue = msg_queue.get(msg["receiver"])
-                    if msg_queue:
-                        msg_queue.append(send_ready_msg)
-                        MSG_QUEUE[scope].update({msg["receiver"]: msg_queue})
-                    else:
-                        MSG_QUEUE[scope].update({msg["receiver"]: [send_ready_msg]})
-                else:
-                    MSG_QUEUE[scope] = {msg["receiver"]: [send_ready_msg]}
-
-                sio.emit(EMIT_SENT_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
+        if receiver and get_server_socket(sio, receiver.sid):
+            sio.emit(EMIT_NEW_MESSAGE,
+                     send_ready_msg,
+                     room=receiver.sid)
+            sio.emit(EMIT_RCV_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
+            # update_message_ack(msg['txn'], receiver, MESSAGE_STATUS['seller'])
+            trace_debug("Message received by -->{}, {}".format(receiver.address, receiver.sid))
+        else:
+            sio.emit(EMIT_SENT_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
+            trace_debug("Message sent to -->{}, {}".format(receiver.address, receiver.sid))
 
 
 @sio.event
-def get_user_list(sid):
-    sio.emit(EMIT_USER_LIST, set_json(push_user_list(sid, SESSIONS)))
+def buyer_received(sid, c_address, scope, address, txn):
+    ack_user_session = get_session(scope, address, False)
+    if ack_user_session and get_server_socket(sio, ack_user_session.sid):
+        current_user_session = get_session(scope, c_address, False)
+        if current_user_session:
+            if update_message_ack(txn, current_user_session):
+                trace_debug("Receive Ack Done -->{}, {}".format(ack_user_session.address, ack_user_session.sid))
+                sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=sid)
+                sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=ack_user_session.sid)
+            else:
+                trace_debug(current_user_session)
+                trace_debug("---**DB ERROR WHILE DELETE!**----")
+        else:
+            trace_debug("Current User not found for txn: {}, UserId: {}".format(txn, c_address))
+    else:
+        trace_debug("{}, {}, {}, {}".format(sid, scope, address, txn))
 
 
 @sio.event
 def disconnect(sid):
-
-    user_info = SESSIONS.get(sid)
-    if user_info:
-        del SOC_SESSIONS[user_info["address"]+user_info["scope"]]
-        del SESSIONS[sid]
-        print('disconnected-->', sid, ": ", user_info["address"])
-        sio.emit(EMIT_USER_LIST, set_json(push_user_list(sid, SESSIONS)))
+    user = remove_session(sid)
+    if user:
+        trace_debug("Disconnected-->{}".format(user.address))
+        sio.emit(EMIT_USER_LIST, set_json(push_user_list(user.scope)))
+    else:
+        trace_info("Disconnected with SID:: {}. No Info on DB!".format(sid))
 
 
 if __name__ == '__main__':
-    eventlet_server(eventlet_listen(('0.0.0.0', 5000)), app)
-
+    trace_info("Multiverse server starting at {}:{}".format(HOST, PORT))
+    try:
+        eventlet_server(eventlet_listen((HOST, PORT)), app)
+            # trace_info(app)
+    except Exception as ex:
+        trace_info(str(ex))
 
 # https://socket.io/docs/using-multiple-nodes/
