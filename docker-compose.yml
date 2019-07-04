@@ -20,13 +20,10 @@ services:
           - mariadb
 
     multiverse:
-        image: sabbir1cse/python37-socketio:latest
+        image: sabbir1cse/python37-socketio:mysqldriver
         volumes:
             - './:/app'
         ports:
           - '5000:5000'
         depends_on:
           - mariadb
-#
-#volumes:
-#    mariadb:
