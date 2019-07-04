@@ -28,11 +28,8 @@ sio = Server()
 app = WSGIApp(sio)
 # dbo.connect()
 
-SESSIONS = dict()
-SOC_SESSIONS = dict()
+
 SCOPE_WHITE_LIST = {"telemesh"}
-MSG_QUEUE = dict()
-ACK_QUEUE = dict()
 
 EMIT_REGISTER = "register"
 EMIT_USER_LIST = "user_list"
@@ -41,14 +38,17 @@ EMIT_SENT_ACK = "sent_ack"
 EMIT_RCV_ACK = "rcv_ack"
 EMIT_BUYER_RCV = "buyer_received"
 EMIT_BUYER_RCV_ACK = "buyer_received_ack"
+EMIT_SUCCESS = "success"
+EMIT_FAIL = "failed"
+# EMIT_ERROR = "error"
 
 
 @sio.event
 def connect(sid, env):
-    check_duplicate = SESSIONS.get(sid)
-    if check_duplicate:
-        trace_debug("Duplicate connection->{}, {}".format(sid, check_duplicate))
-        # "As:: ", check_duplicate, " Closed!")
+    # check_duplicate = SESSIONS.get(sid)
+    # if check_duplicate:
+    #     trace_debug("Duplicate connection->{}, {}".format(sid, check_duplicate))
+    #     # "As:: ", check_duplicate, " Closed!")
     sio.emit(EMIT_REGISTER, room=sid)
 
 
@@ -61,7 +61,8 @@ def register(sid: str, scope: str, address: str):
         address = address.strip()
 
         if scope not in SCOPE_WHITE_LIST:
-            sio.disconnect(sid)
+            # sio.disconnect(sid)
+            sio.emit(EMIT_FAIL, set_json(dict(reason="Wrong APP/Scope")), room=sid)
             raise ConnectionRefusedError("Scope is invalid.")
 
         user_session = get_session(scope, address)
@@ -73,10 +74,11 @@ def register(sid: str, scope: str, address: str):
             except KeyError as e:
                 trace_debug(str(e) + "-->Nothing to close!")
 
-        user_session = set_session(sid, scope, address)
-        if user_session:
+        # user_session = set_session(sid, scope, address)
+        if set_session(sid, scope, address):
             user_session = get_session(scope, address)
         if user_session:
+            sio.emit(EMIT_SUCCESS, set_json(dict(reason="Session Created.")), room=sid)
             sio.emit(EMIT_USER_LIST, set_json(push_user_list(scope)))
 
             new_message = get_user_message(user_session)
@@ -113,7 +115,10 @@ def register(sid: str, scope: str, address: str):
                         print(sio.eio.sockets)
                         print(receiver)
                         trace_debug("Receiver {} not found".format(msg['sender']))
+        else:
+            sio.emit(EMIT_FAIL, set_json(dict(reason="User session establishment failed. Try again.")), room=sid)
     else:
+        sio.emit(EMIT_FAIL, set_json(dict(reason="Invalid Info passed.")))
         trace_debug("Invalid Request. Address: {}, Session: {}, App:: {}".format(address, sid, scope))
         # sio.disconnect(sid)
         raise ConnectionRefusedError("Scope/Address/SID missing.")
@@ -146,6 +151,8 @@ def send_message(sid, scope, address, message):
         else:
             sio.emit(EMIT_SENT_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
             trace_debug("Message sent to -->{}, {}".format(receiver.address, receiver.sid))
+    else:
+        sio.disconnect(sid)
 
 
 @sio.event
