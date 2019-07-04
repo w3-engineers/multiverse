@@ -128,3 +128,5 @@ dmypy.json
 /*.bak
 
 config.py
+
+mysqldata
