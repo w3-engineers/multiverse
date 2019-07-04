@@ -101,6 +101,8 @@
     EMIT_SEND_MESSAGE = "send_message";
     EMIT_BUYER_RCV = "buyer_received";
     EMIT_BUYER_RCV_ACK = "buyer_received_ack";
+    EMIT_SUCCESS = "success";
+    EMIT_FAIL = "failed";
 
     let appname = "telemesh";
     // let txn;
@@ -173,10 +175,10 @@
         //     "<div class='chat others-msg'><span class='me'>" + data.sender + ": </span>" +
         //     "<span class='text'>" + data.text + "</span></div>";
         user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
-                    "<div class='chat others-msg'><span class='me'>"+data.sender+" </span>" +
-                    "<span class='text'>" + data.text + "</span>" +
-                    "<span class='status' id='" + appname + data.txn + "'>" +
-                "<a href=\"javascript:void(0);\" data-me='"+name+"' data-appname='"+appname+"' data-sender='"+data.sender+"' data-txn='"+data.txn+"' onclick=\"javascript:buyer_received(this)\">✉</a>"+
+            "<div class='chat others-msg'><span class='me'>" + data.sender + " </span>" +
+            "<span class='text'>" + data.text + "</span>" +
+            "<span class='status' id='" + appname + data.txn + "'>" +
+            "<a href=\"javascript:void(0);\" data-me='" + name + "' data-appname='" + appname + "' data-sender='" + data.sender + "' data-txn='" + data.txn + "' onclick=\"javascript:buyer_received(this)\">✉</a>" +
             "</span></div>";
     });
 
@@ -188,9 +190,9 @@
         let ack_dom = document.getElementById(data.scope + data.txn);
 
         ack_dom.innerHTML = delivered;
-        if(ack_dom){
+        if (ack_dom) {
             ack_dom.innerHTML = delivered;
-        }else {
+        } else {
             console.log("ACK DOM MISSING!")
         }
         // current_dom = ack_dom;
@@ -205,9 +207,9 @@
         console.log("SID:: " + socket.io.engine.id);
         data = JSON.parse(data);
         let ack_dom = document.getElementById(data.scope + data.txn);
-        if(ack_dom){
+        if (ack_dom) {
             ack_dom.innerHTML = sent;
-        }else {
+        } else {
             console.log("ACK DOM MISSING!")
         }
 
@@ -219,13 +221,26 @@
         console.log("SID:: " + socket.io.engine.id);
         data = JSON.parse(data);
         let ack_dom = document.getElementById(data.scope + data.txn);
-        if(ack_dom){
+        if (ack_dom) {
             ack_dom.innerHTML = received;
-        }else {
+        } else {
             console.log("ACK DOM MISSING!")
         }
 
     });
+
+    socket.on(EMIT_SUCCESS, function (data) {
+        console.log(EMIT_SUCCESS);
+        console.log(data);
+
+    });
+
+    socket.on(EMIT_FAIL, function (data) {
+        console.log(EMIT_FAIL);
+        console.log(data);
+        alert(data);
+    });
+
 
     socket.on(EMIT_DISCONNECT, function () {
         console.log(EMIT_DISCONNECT);
