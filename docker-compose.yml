@@ -19,7 +19,7 @@ services:
         depends_on:
           - mariadb
 
-    inventory-fs:
+    multiverse:
         image: sabbir1cse/python37-socketio:latest
         volumes:
             - './:/app'
