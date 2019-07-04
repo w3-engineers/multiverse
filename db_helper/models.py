@@ -1,8 +1,10 @@
 from datetime import datetime
 from db_helper.connector import BaseModel
-from peewee import PrimaryKeyField, CharField, \
+from peewee import BooleanField, CharField, \
     DateTimeField, ForeignKeyField, TextField,\
-    BooleanField, CompositeKey, UUIDField
+    CompositeKey, UUIDField
+
+MESSAGE_STATUS = dict(server=0, buyer=1)
 
 
 class User(BaseModel):
@@ -24,7 +26,7 @@ class Message(BaseModel):
     key = CharField(max_length=50)
     user_id = ForeignKeyField(User, backref='message', null=True, on_delete='CASCADE', on_update='CASCADE')
     message = TextField()
-    # status = SmallIntegerField(default=MESSAGE_STATUS['seller'])
+    status = BooleanField(default=MESSAGE_STATUS['server'])
     # TODO:: message validator using encryption
     created_on = DateTimeField(default=datetime.now)
 

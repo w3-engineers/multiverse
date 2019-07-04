@@ -1,6 +1,6 @@
 from json import loads as json_dict, dumps as json_string
 from uuid import uuid4
-from db_helper.models import User, Message
+from db_helper.models import User, Message, MESSAGE_STATUS
 from datetime import datetime
 from config import DEBUG
 from db_helper.connector import dbo
@@ -75,10 +75,6 @@ def remove_session(sid):
         peewee_exception()
 
 
-def get_message_by_address(address, scope):
-    pass
-
-
 def get_user_message(session):
     peewee_exception()
     if session and session.id:
@@ -90,12 +86,12 @@ def save_send_message(session, txn, message):
     return Message(id=uuid4(), key=txn, user_id=session.id, message=message).save(force_insert=True)
 
 
-def update_message_ack(txn, session):
+def update_message_ack(txn, session, offline=None):
     peewee_exception()
+    if offline:
+        return Message.update(status=MESSAGE_STATUS['buyer'], user_id=offline).\
+            where((Message.user_id == session.id) & (Message.key == txn)).execute()
     return Message.delete().where((Message.user_id == session.id) & (Message.key == txn)).execute()
-    # result = Message.select().where((Message.user_id == session.id) & (Message.key == txn)).execute()
-    # for row in result:
-    #     return row
 
 
 def get_server_socket(sio, key):

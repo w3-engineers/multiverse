@@ -5,10 +5,17 @@ from socketio import Server, WSGIApp
 from socketio.exceptions import ConnectionRefusedError, ConnectionError
 
 from config import DEBUG, HOST, PORT
+from db_helper.models import MESSAGE_STATUS
 from helpers import parse_message, set_json, \
     push_user_list, set_session, remove_session,\
     get_session, get_user_message, save_send_message,\
     update_message_ack, trace_info, trace_debug, get_server_socket
+
+"""
+TODO:: Auto Scale System Notification Implement.
+Possible Solution Can be pass Server IP and make a internal emit to trigger.
+"""
+
 
 # if DEBUG:
 #     basicConfig(level=LOG_DEBUG)
@@ -75,12 +82,19 @@ def register(sid: str, scope: str, address: str):
             if new_message:
                 receiver = None
                 for msg in new_message:
-                    sio.emit(EMIT_NEW_MESSAGE, msg.message, room=sid)
 
-                    # For ack
+                    if msg.status == MESSAGE_STATUS['buyer']:
+                        sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=msg.key)), room=sid)
+                        if update_message_ack(msg.key, user_session):
+                            trace_debug("Message ACK {} sent for this user {}".
+                                        format(msg.message, user_session.address))
+                        else:
+                            trace_debug("DB ERROR FOR ACK {}. user {}".
+                                        format(msg.message, user_session.address))
+                    else:
+                        sio.emit(EMIT_NEW_MESSAGE, msg.message, room=sid)
 
                     msg = parse_message(msg.message)
-                    # receiver = SOC_SESSIONS.get(msg['sender'] + scope)
                     if receiver and receiver.user_id.address != msg['sender']:
                         receiver = get_session(scope, msg['sender'])
 
@@ -129,20 +143,25 @@ def send_message(sid, scope, address, message):
 @sio.event
 def buyer_received(sid, c_address, scope, address, txn):
     ack_user_session = get_session(scope, address, False)
-    if ack_user_session and get_server_socket(sio, ack_user_session.sid):
-        current_user_session = get_session(scope, c_address, False)
-        if current_user_session:
-            if update_message_ack(txn, current_user_session):
-                trace_debug("Receive Ack Done -->{}, {}".format(ack_user_session.address, ack_user_session.sid))
-                sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=sid)
-                sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=ack_user_session.sid)
-            else:
-                trace_debug(current_user_session)
-                trace_debug("---**DB ERROR WHILE DELETE!**----")
+    current_user_session = get_session(scope, c_address, False)
+    if ack_user_session and get_server_socket(sio, ack_user_session.sid) and current_user_session:
+        if update_message_ack(txn, current_user_session):
+            trace_debug("Receive Ack Done -->{}, {}".format(ack_user_session.address, ack_user_session.sid))
+            sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=ack_user_session.sid)
+            sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=sid)
         else:
-            trace_debug("Current User not found for txn: {}, UserId: {}".format(txn, c_address))
+            trace_debug(current_user_session)
+            trace_debug("---**DB ERROR WHILE DELETE!**----")
+    elif current_user_session and ack_user_session:
+        if update_message_ack(txn, current_user_session, ack_user_session.id):
+            trace_debug("ACK User Status Updated as he not online!")
+            trace_debug("Current User for txn: {}, UserId: {}".format(txn, c_address))
+            sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=sid)
+        else:
+            trace_debug(current_user_session)
+            trace_debug("---**DB ERROR WHILE DELETE! UPDATE!!!**----")
     else:
-        trace_debug("{}, {}, {}, {}".format(sid, scope, address, txn))
+        trace_debug("ACK User not online. Details--> {}, {}, {}, {}".format(sid, scope, address, txn))
 
 
 @sio.event
