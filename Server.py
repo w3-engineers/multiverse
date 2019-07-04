@@ -73,6 +73,7 @@ def register(sid: str, scope: str, address: str):
                     sio.disconnect(user_session.sid)
             except KeyError as e:
                 trace_debug(str(e) + "-->Nothing to close!")
+                remove_session(user_session.sid)
 
         # user_session = set_session(sid, scope, address)
         if set_session(sid, scope, address):
