@@ -49,7 +49,7 @@ def get_session(scope, address, online=True):
     result = None
     if online:
         data = User.select().where((User.scope == scope) & (User.address == address)
-                                      & (User.is_online == online))
+                                   & (User.is_online == online))
     else:
         data = User.select().where((User.scope == scope) & (User.address == address))
 
@@ -71,7 +71,7 @@ def remove_session(sid):
 
             return user
     except Exception as ex:
-        trace_info(str(ex))
+        trace_info(str(ex) + " --> Exception while remove session.")
         peewee_exception()
 
 
@@ -89,8 +89,12 @@ def save_send_message(session, txn, message):
 def update_message_ack(txn, session, offline=None):
     peewee_exception()
     if offline:
-        return Message.update(status=MESSAGE_STATUS['buyer'], user_id=offline).\
-            where((Message.user_id == session.id) & (Message.key == txn)).execute()
+        return Message.update(status=MESSAGE_STATUS['buyer']).where((Message.user_id == session.id)
+                                                                    & (Message.key == txn)).execute() \
+               and Message(id=uuid4(), key=txn, status=MESSAGE_STATUS['buyer'],
+                           user_id=offline, message=json_string(dict(sender=session.address,
+                                                                     txn=txn, text="ACK"))).save(force_insert=True)
+
     return Message.delete().where((Message.user_id == session.id) & (Message.key == txn)).execute()
 
 

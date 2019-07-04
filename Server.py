@@ -1,4 +1,5 @@
-from logging import basicConfig, CRITICAL  # , debug as trace_debug, info as trace_info, DEBUG as LOG_DEBUG, INFO as LOG_INFO
+from logging import basicConfig, CRITICAL
+# , debug as trace_debug, info as trace_info, DEBUG as LOG_DEBUG, INFO as LOG_INFO
 from eventlet.wsgi import server as eventlet_server
 from eventlet import listen as eventlet_listen
 from socketio import Server, WSGIApp
@@ -80,7 +81,7 @@ def register(sid: str, scope: str, address: str):
 
             new_message = get_user_message(user_session)
             if new_message:
-                receiver = None
+                # receiver = None
                 for msg in new_message:
 
                     if msg.status == MESSAGE_STATUS['buyer']:
@@ -95,15 +96,23 @@ def register(sid: str, scope: str, address: str):
                         sio.emit(EMIT_NEW_MESSAGE, msg.message, room=sid)
 
                     msg = parse_message(msg.message)
-                    if receiver and receiver.user_id.address != msg['sender']:
-                        receiver = get_session(scope, msg['sender'])
+                    # if receiver and receiver.user_id.address != msg['sender']:
+                    receiver = get_session(scope, msg['sender'])
 
                     ack_msg = dict(txn=msg["txn"], scope=scope)
                     ack_ready_msg = set_json(ack_msg)
 
                     if receiver and get_server_socket(sio, receiver.sid):
-                        sio.emit(EMIT_RCV_ACK, ack_ready_msg, room=receiver.id)
-                        # update_message_ack(ack_msg['txn'], receiver, MESSAGE_STATUS['seller'])
+                        trace_debug("Receiver {}".format(receiver.address))
+
+                        sio.emit(EMIT_RCV_ACK, ack_ready_msg, room=receiver.sid)
+                        if update_message_ack(ack_msg['txn'], receiver):
+                            sio.emit(EMIT_BUYER_RCV_ACK, ack_ready_msg, room=receiver.sid)
+                            trace_debug("ACK for receiver {}".format(receiver.address))
+                    else:
+                        print(sio.eio.sockets)
+                        print(receiver)
+                        trace_debug("Receiver {} not found".format(msg['sender']))
     else:
         trace_debug("Invalid Request. Address: {}, Session: {}, App:: {}".format(address, sid, scope))
         # sio.disconnect(sid)
@@ -121,7 +130,7 @@ def send_message(sid, scope, address, message):
             sio.disconnect(sid)
             raise ConnectionRefusedError("User your tried was invalid ({}, {})".format(scope, address))
         send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'], "sender": address})
-        trace_debug("Receiver={}, Message=".format(receiver.address, send_ready_msg))
+        trace_debug("Receiver={}, Message={}".format(receiver.address, send_ready_msg))
         save_message = None
         if receiver:
             save_message = save_send_message(receiver, msg['txn'], send_ready_msg)
@@ -133,7 +142,6 @@ def send_message(sid, scope, address, message):
                      send_ready_msg,
                      room=receiver.sid)
             sio.emit(EMIT_RCV_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
-            # update_message_ack(msg['txn'], receiver, MESSAGE_STATUS['seller'])
             trace_debug("Message received by -->{}, {}".format(receiver.address, receiver.sid))
         else:
             sio.emit(EMIT_SENT_ACK, set_json(dict(txn=msg["txn"], scope=scope)), room=sid)
@@ -156,7 +164,7 @@ def buyer_received(sid, c_address, scope, address, txn):
         if update_message_ack(txn, current_user_session, ack_user_session.id):
             trace_debug("ACK User Status Updated as he not online!")
             trace_debug("Current User for txn: {}, UserId: {}".format(txn, c_address))
-            sio.emit(EMIT_BUYER_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=sid)
+            sio.emit(EMIT_RCV_ACK, set_json(dict(scope=scope, txn=txn)), room=sid)
         else:
             trace_debug(current_user_session)
             trace_debug("---**DB ERROR WHILE DELETE! UPDATE!!!**----")
@@ -178,7 +186,6 @@ if __name__ == '__main__':
     trace_info("Multiverse server starting at {}:{}".format(HOST, PORT))
     try:
         eventlet_server(eventlet_listen((HOST, PORT)), app)
-            # trace_info(app)
     except Exception as ex:
         trace_info(str(ex))
 
