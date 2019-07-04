@@ -20,7 +20,7 @@ services:
           - mariadb
 
     inventory-fs:
-        image: python37-socketio:latest
+        image: sabbir1cse/python37-socketio:latest
         volumes:
             - './:/app'
         ports:

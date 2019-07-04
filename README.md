@@ -5,8 +5,9 @@ This is a websocket server based on socket.io. It's mainly created in pupose of 
 ## Production Deployment
 Clone repository, run `docker-compose up -d`
 
-Make a reverse proxy for websocket using nginx. Enable SSL using certbot for production.
+Go to multverse code container and run database migrate using `python migrate.py`
 
+Make a reverse proxy for websocket using nginx. Enable SSL using certbot for production.
 Add below code under your server config of ngnix.
 ```
   location / {
