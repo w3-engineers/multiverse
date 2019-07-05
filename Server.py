@@ -20,12 +20,12 @@ Possible Solution Can be pass Server IP and make a internal emit to trigger.
 # if DEBUG:
 #     basicConfig(level=LOG_DEBUG)
 # else:
-#     basicConfig(level=LOG_INFO)
+#     basicConfig(level=LOG_INFO)\
+
 basicConfig(level=CRITICAL)
 
 sio = Server()
 app = WSGIApp(sio)
-# dbo.connect()
 
 
 SCOPE_WHITE_LIST = {"telemesh"}
@@ -62,7 +62,6 @@ def register(sid: str, scope: str, address: str):
         address = address.strip()
 
         if scope not in SCOPE_WHITE_LIST:
-            # sio.disconnect(sid)
             sio.emit(EMIT_FAIL, set_json(dict(reason="Wrong APP/Scope", receiver=address)), room=sid)
         else:
             user_session = get_session(scope, address)
@@ -75,16 +74,15 @@ def register(sid: str, scope: str, address: str):
                     trace_debug(str(e) + "-->Nothing to close!")
                     remove_session(user_session.sid)
 
-            # user_session = set_session(sid, scope, address)
             if set_session(sid, scope, address):
                 user_session = get_session(scope, address)
             if user_session:
-                sio.emit(EMIT_SUCCESS, set_json(dict(reason="Session Created.", receiver=user_session.address)), room=sid)
+                sio.emit(EMIT_SUCCESS, set_json(dict(reason="Session Created.", receiver=user_session.address)),
+                         room=sid)
                 sio.emit(EMIT_USER_LIST, set_json(push_user_list(scope)))
 
                 new_message = get_user_message(user_session)
                 if new_message:
-                    # receiver = None
                     for msg in new_message:
 
                         if msg.status == MESSAGE_STATUS['buyer']:
@@ -123,11 +121,11 @@ def register(sid: str, scope: str, address: str):
                             trace_debug("Receiver {} not found".format(msg['sender']))
             else:
                 sio.emit(EMIT_FAIL,
-                         set_json(dict(reason="User session establishment failed. Try again.", receiver=address)), room=sid)
+                         set_json(dict(reason="User session establishment failed. Try again.", receiver=address)),
+                         room=sid)
     else:
         sio.emit(EMIT_FAIL, set_json(dict(reason="Invalid Info passed.", receiver=address)))
         trace_debug("Invalid Request. Address: {}, Session: {}, App:: {}".format(address, sid, scope))
-        # sio.disconnect(sid)
 
 
 @sio.event
@@ -139,29 +137,29 @@ def send_message(sid, scope, address, message):
         receiver = get_session(scope, msg['receiver'], False)
         if not receiver:
             sio.disconnect(sid)
-            raise ConnectionRefusedError("User your tried was invalid ({}, {})".format(scope, address))
-
-        raw_send_read_msg = {"txn": msg["txn"], "text": msg['text'],
-                             "sender": address}
-        send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'],
-                                   "sender": address})
-        trace_debug("Receiver={}, Message={}".format(receiver.address, send_ready_msg))
-        save_message = None
-        if receiver:
-            raw_send_read_msg['receiver'] = receiver.address
-            save_message = save_send_message(receiver, msg['txn'], set_json(raw_send_read_msg))
-        if not save_message:
-            raise ConnectionError("Message storage refused to save stuff. ({})".format(save_message))
-
-        if receiver and get_server_socket(sio, receiver.sid):
-            sio.emit(EMIT_NEW_MESSAGE,
-                     set_json(raw_send_read_msg),
-                     room=receiver.sid)
-            sio.emit(EMIT_RCV_ACK, set_json(dict(txn=msg["txn"], scope=scope, receiver=user_session.address)), room=sid)
-            trace_debug("Message received by -->{}, {}".format(receiver.address, receiver.sid))
         else:
-            sio.emit(EMIT_SENT_ACK, set_json(dict(txn=msg["txn"], scope=scope, receiver=user_session.address)), room=sid)
-            trace_debug("Message sent to -->{}, {}".format(receiver.address, receiver.sid))
+            raw_send_read_msg = {"txn": msg["txn"], "text": msg['text'],
+                                 "sender": address}
+            send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'],
+                                       "sender": address})
+            trace_debug("Receiver={}, Message={}".format(receiver.address, send_ready_msg))
+            save_message = None
+            if receiver:
+                raw_send_read_msg['receiver'] = receiver.address
+                save_message = save_send_message(receiver, msg['txn'], set_json(raw_send_read_msg))
+            elif not save_message:
+                trace_info("Message storage refused to save stuff. ({})".format(save_message))
+            elif receiver and get_server_socket(sio, receiver.sid):
+                sio.emit(EMIT_NEW_MESSAGE,
+                         set_json(raw_send_read_msg),
+                         room=receiver.sid)
+                sio.emit(EMIT_RCV_ACK, set_json(dict(txn=msg["txn"], scope=scope, receiver=user_session.address)),
+                         room=sid)
+                trace_debug("Message received by -->{}, {}".format(receiver.address, receiver.sid))
+            else:
+                sio.emit(EMIT_SENT_ACK, set_json(dict(txn=msg["txn"], scope=scope, receiver=user_session.address)),
+                         room=sid)
+                trace_debug("Message sent to -->{}, {}".format(receiver.address, receiver.sid))
     else:
         sio.disconnect(sid)
 
@@ -184,7 +182,8 @@ def buyer_received(sid, c_address, scope, address, txn):
         if update_message_ack(txn, current_user_session, ack_user_session.id):
             trace_debug("ACK User Status Updated as he not online!")
             trace_debug("Current User for txn: {}, UserId: {}".format(txn, c_address))
-            sio.emit(EMIT_RCV_ACK, set_json(dict(scope=scope, txn=txn, receiver=current_user_session.address)), room=sid)
+            sio.emit(EMIT_RCV_ACK, set_json(dict(scope=scope, txn=txn, receiver=current_user_session.address)),
+                     room=sid)
         else:
             trace_debug(current_user_session)
             trace_debug("---**DB ERROR WHILE DELETE! UPDATE!!!**----")
