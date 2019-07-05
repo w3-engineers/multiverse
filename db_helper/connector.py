@@ -7,3 +7,11 @@ dbo = MySQLDatabase(DB_NAME, user=DB_USR, password=DB_PWD, host=DB_HOST, port=DB
 class BaseModel(Model):
     class Meta:
         database = dbo
+
+
+def connect(reuse=True):
+    dbo.connect(reuse_if_open=reuse)
+
+
+def close():
+    dbo.close()

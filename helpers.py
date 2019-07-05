@@ -3,12 +3,7 @@ from uuid import uuid4
 from db_helper.models import User, Message, MESSAGE_STATUS
 from datetime import datetime
 from config import DEBUG
-from db_helper.connector import dbo
-
-
-def peewee_exception():
-    if dbo.connection():
-        return True
+from db_helper.connector import connect, close
 
 
 def parse_message(msg):
@@ -20,12 +15,15 @@ def set_json(data):
 
 
 def push_user_list(scope):
+    connect()
     user_list = []
     valid_info = User.select(User.address).where(
         (User.scope == scope) & (User.is_online == True))
 
     for row in valid_info:
         user_list.append(row.address)
+
+    close()
     return user_list
 
 
@@ -34,18 +32,20 @@ def get_session_key(scope, address):
 
 
 def set_session(sid, scope, address):
-    peewee_exception()
+    connect()
     update = User.update(sid=sid, last_seen=datetime.now(), is_online=True). \
         where((User.scope == scope) & (User.address == address)).execute()
     if update:
+        close()
         return True
     user = User(id=uuid4(), scope=scope, address=address, sid=sid, is_online=True).save(force_insert=True)
+    close()
     if user:
         return user
 
 
 def get_session(scope, address, online=True):
-    peewee_exception()
+    connect()
     result = None
     if online:
         data = User.select().where((User.scope == scope) & (User.address == address)
@@ -57,45 +57,54 @@ def get_session(scope, address, online=True):
         if row.address:
             result = row
             break
+    close()
     return result
 
 
 def remove_session(sid):
-    peewee_exception()
+    connect()
     try:
         user = User.get(User.sid == sid)
         if user:
             user.last_seen = datetime.now()
             user.is_online = False
             user.save()
-
+            close()
             return user
     except Exception as ex:
         trace_info(str(ex) + " --> Exception while remove session.")
-        peewee_exception()
+        close()
 
 
 def get_user_message(session):
-    peewee_exception()
+    connect()
     if session and session.id:
-        return Message.select().where((Message.user_id == session.id))
+        result = Message.select().where((Message.user_id == session.id))
+        close()
+        return result
 
 
 def save_send_message(session, txn, message):
-    peewee_exception()
-    return Message(id=uuid4(), key=txn, user_id=session.id, message=message).save(force_insert=True)
+    connect()
+    result = Message(id=uuid4(), key=txn, user_id=session.id, message=message).save(force_insert=True)
+    close()
+    return result
 
 
 def update_message_ack(txn, session, offline=None):
-    peewee_exception()
+    connect()
     if offline:
-        return Message.update(status=MESSAGE_STATUS['buyer']).where((Message.user_id == session.id)
+        result = Message.update(status=MESSAGE_STATUS['buyer']).where((Message.user_id == session.id)
                                                                     & (Message.key == txn)).execute() \
                and Message(id=uuid4(), key=txn, status=MESSAGE_STATUS['buyer'],
                            user_id=offline, message=json_string(dict(sender=session.address,
                                                                      txn=txn, text="ACK"))).save(force_insert=True)
+    else:
+        result = Message.delete().where((Message.user_id == session.id) & (Message.key == txn)).execute()
 
-    return Message.delete().where((Message.user_id == session.id) & (Message.key == txn)).execute()
+    close()
+
+    return result
 
 
 def get_server_socket(sio, key):
