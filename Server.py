@@ -99,7 +99,7 @@ def register(sid: str, scope: str, address: str):
                 new_message = get_user_message(user_session)
                 if new_message:
                     for msg in new_message:
-                        msg_text = get_dict(msg.message)
+                        msg_dict = get_dict(msg.message)
                         if msg.status == MESSAGE_STATUS['buyer']:
                             buyer_receive_ack_response(sio, scope, msg.key, user_session.address, sid)
                             if update_message_ack(msg.key, user_session):
@@ -109,28 +109,27 @@ def register(sid: str, scope: str, address: str):
                                 trace_debug("DB ERROR FOR ACK {}. user {}".
                                             format(msg.message, user_session.address))
                         else:
-                            new_message_response(sio, scope, msg.key, msg_text.get('text', None),
-                                                 msg.user_id.address, user_session.address, sid)
+                            new_message_response(sio, scope, msg.key, msg_dict.get('text', None),
+                                                 msg_dict.get('sender', None), user_session.address, sid)
 
-                        msg = get_dict(msg.message)
-                        # if receiver and receiver.user_id.address != msg['sender']:
-                        receiver = get_session(scope, msg_text['sender'])
+                        receiver = get_session(scope, msg_dict.get('sender', None))
 
-                        # ack_msg_own = dict(txn=msg["txn"], scope=scope, to=user_session.address)
-                        # ack_ready_msg_own = set_json(ack_msg_own)
-
+                        # If Sender and receiver both are available
                         if receiver and get_server_socket(sio, receiver.sid):
-                            ack_msg_other = dict(txn=msg["txn"], scope=scope, to=receiver.address)
+
                             trace_debug("Receiver for new message {}".format(receiver.address))
-                            receive_ack_response(sio, msg['txn'], scope, receiver.address, receiver.sid)
-                            if update_message_ack(ack_msg_other['txn'], receiver):
-                                buyer_receive_ack_response(sio, scope, msg['txn'], receiver.address, receiver.sid)
+
+                            # send receive ack for receive to receiver
+                            receive_ack_response(sio, msg_dict['txn'], scope, receiver.address, receiver.sid)
+                            if update_message_ack(msg_dict["txn"], receiver):
+                                # send receive ack for buyer/targeted user
+                                buyer_receive_ack_response(sio, scope, msg_dict['txn'], receiver.address, receiver.sid)
                                 trace_debug("ACK for receiver {}".format(receiver.address))
                         else:
                             trace_info("---------Receiver missing check sockets-------")
                             trace_info(sio.eio.sockets)
                             trace_info(receiver)
-                            trace_debug("Receiver {} not found".format(msg['sender']))
+                            trace_debug("Receiver {} not found".format(msg_dict['sender']))
             else:
                 failed_response(sio, "User session establishment failed for {}. Try again.".format(address),
                                 address, sid)
@@ -154,9 +153,8 @@ def send_message(sid, scope, address, message):
         else:
             raw_send_read_msg = {"txn": msg["txn"], "text": msg['text'],
                                  "sender": address}
-            send_ready_msg = set_json({"txn": msg["txn"], "text": msg['text'],
-                                       "sender": address})
-            trace_debug("Receiver={}, Message={}".format(receiver.address, send_ready_msg))
+
+            trace_debug("Receiver={}, Message={}".format(receiver.address, raw_send_read_msg))
             save_message = None
             if receiver:
                 raw_send_read_msg['to'] = receiver.address

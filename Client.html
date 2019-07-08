@@ -176,7 +176,7 @@
         //     "<div class='chat others-msg'><span class='me'>" + data.sender + ": </span>" +
         //     "<span class='text'>" + data.text + "</span></div>";
         user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
-            "<div class='chat others-msg'><span class='me'>" + data.sender + " </span>" +
+            "<div class='chat others-msg'><span class='me'>" + data.sender + ": </span>" +
             "<span class='text'>" + data.text + "</span>" +
             "<span class='status' id='" + appname + data.txn + "'>" +
             "<a href=\"javascript:void(0);\" data-me='" + name + "' data-appname='" + appname + "' data-sender='" + data.sender + "' data-txn='" + data.txn + "' onclick=\"javascript:buyer_received(this)\">✉</a>" +
