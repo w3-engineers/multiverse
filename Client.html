@@ -51,7 +51,7 @@
 
     </style>
 
-    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js"></script>
+    <script type="text/javascript" src="socket.io.js"></script>
 </head>
 <body>
 
@@ -89,6 +89,7 @@
     user_chat_history_dom = document.querySelector(".chat-history");
     let sent = "✓";
     let delivered = "✓✓";
+    let received = "✓✓✓";
 
     EMIT_RCV_ACK = "rcv_ack";
     EMIT_SENT_ACK = "sent_ack";
@@ -98,25 +99,43 @@
     EMIT_REGISTER = "register";
     EMIT_NEW_MESSAGE = "new_message";
     EMIT_SEND_MESSAGE = "send_message";
+    EMIT_BUYER_RCV = "buyer_received";
+    EMIT_BUYER_RCV_ACK = "buyer_received_ack";
+    EMIT_SUCCESS = "success";
+    EMIT_FAIL = "failed";
 
     let appname = "telemesh";
-
+    // let txn;
+    // let current_dom;
+    // let current_address;
     let name = prompt("What will be your name?", "");
 
-    if (name == null || name.length === 0) {
+    if (name === null || name.length === 0) {
         alert("A name Required.");
         window.location.reload();
     }
 
-    let socket = io('https://multiverse.w3engineers.com/');
+    // let socket = io('http://localhost:5000');
+    let socket = io('https://multiverse.w3engineers.com');
     let connected = false;
+
 
     socket.on(EMIT_CONNECT, function () {
         console.log(EMIT_CONNECT);
         console.log("Connected as " + name);
+        console.log("SID:: " + socket.io.engine.id);
         connected = true;
         user_info_dom.innerHTML = "<h1>Welcome " + name + "!</h1>";
     });
+
+    function buyer_received(dom) {
+        let scope = dom.getAttribute('data-appname');
+        let address = dom.getAttribute('data-sender');
+        let txn = dom.getAttribute('data-txn');
+        let myname = dom.getAttribute("data-me");
+        socket.emit(EMIT_BUYER_RCV, myname, scope, address, txn);
+        dom.innerHTML = "<strong style='color: green'>Waiting form Final ACK</strong>";
+    }
 
     //events
     socket.on(EMIT_USER_LIST, function (data) {
@@ -142,6 +161,7 @@
     socket.on(EMIT_REGISTER, function (data) {
         console.log(EMIT_REGISTER);
         console.log(data);
+        console.log("SID:: " + socket.io.engine.id);
         socket.emit(EMIT_REGISTER, appname, name);
     });
 
@@ -149,35 +169,84 @@
 
         console.log(EMIT_NEW_MESSAGE);
         console.log(data);
+        // alert(data)
         data = JSON.parse(data);
-
+        console.log("SID:: " + socket.io.engine.id);
+        // user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
+        //     "<div class='chat others-msg'><span class='me'>" + data.sender + ": </span>" +
+        //     "<span class='text'>" + data.text + "</span></div>";
         user_chat_history_dom.innerHTML = user_chat_history_dom.innerHTML +
             "<div class='chat others-msg'><span class='me'>" + data.sender + ": </span>" +
-            "<span class='text'>" + data.text + "</span></div>";
+            "<span class='text'>" + data.text + "</span>" +
+            "<span class='status' id='" + appname + data.txn + "'>" +
+            "<a href=\"javascript:void(0);\" data-me='" + name + "' data-appname='" + appname + "' data-sender='" + data.sender + "' data-txn='" + data.txn + "' onclick=\"javascript:buyer_received(this)\">✉</a>" +
+            "</span></div>";
     });
 
     socket.on(EMIT_RCV_ACK, function (data) {
         console.log(EMIT_RCV_ACK);
         console.log(data);
-
+        console.log("SID:: " + socket.io.engine.id);
         data = JSON.parse(data);
         let ack_dom = document.getElementById(data.scope + data.txn);
+
         ack_dom.innerHTML = delivered;
+        if (ack_dom) {
+            ack_dom.innerHTML = delivered;
+        } else {
+            console.log("ACK DOM MISSING!")
+        }
+        // current_dom = ack_dom;
+        // txn = data.txn;
+        // current_address = name;
+        // ack_dom.innerHTML = '<span><a href="javascript:void(0);" onclick="javascript:buyer_received(current_dom, appname, current_address, txn)">'+delivered+'</a></span>';
     });
 
     socket.on(EMIT_SENT_ACK, function (data) {
         console.log(EMIT_SENT_ACK);
         console.log(data);
-
+        console.log("SID:: " + socket.io.engine.id);
         data = JSON.parse(data);
         let ack_dom = document.getElementById(data.scope + data.txn);
-        ack_dom.innerHTML = sent;
+        if (ack_dom) {
+            ack_dom.innerHTML = sent;
+        } else {
+            console.log("ACK DOM MISSING!")
+        }
+
     });
+
+    socket.on(EMIT_BUYER_RCV_ACK, function (data) {
+        console.log(EMIT_BUYER_RCV_ACK);
+        console.log(data);
+        console.log("SID:: " + socket.io.engine.id);
+        data = JSON.parse(data);
+        let ack_dom = document.getElementById(data.scope + data.txn);
+        if (ack_dom) {
+            ack_dom.innerHTML = received;
+        } else {
+            console.log("ACK DOM MISSING!")
+        }
+
+    });
+
+    socket.on(EMIT_SUCCESS, function (data) {
+        console.log(EMIT_SUCCESS);
+        console.log(data);
+
+    });
+
+    socket.on(EMIT_FAIL, function (data) {
+        console.log(EMIT_FAIL);
+        console.log(data);
+        alert(data);
+    });
+
 
     socket.on(EMIT_DISCONNECT, function () {
         console.log(EMIT_DISCONNECT);
         connected = false;
-
+        console.log("SID:: " + socket.io.engine.id);
         alert("Connection closed.");
         window.location.reload();
     });
@@ -185,7 +254,9 @@
 
     //actions from clients
     user_send_message_dom.onkeypress = function (event) {
-         console.log(EMIT_SEND_MESSAGE);
+
+        console.log(EMIT_SEND_MESSAGE);
+
         if (event.key === 'Enter') {
 
             let msg = user_send_message_dom.value;
@@ -198,7 +269,6 @@
 
                 let timeStampInMs = window.performance && window.performance.now && window.performance.timing && window.performance.timing.navigationStart ? window.performance.now() + window.performance.timing.navigationStart : Date.now();
                 let message = JSON.stringify({
-                    action: "send",
                     receiver: recv,
                     text: msg, txn: timeStampInMs, app: appname
                 });
@@ -210,12 +280,15 @@
 
                 user_send_message_dom.value = '';
                 console.log("send message set!");
+
             } else {
                 alert("Receiver and Message Missing!");
             }
+            console.log("SID:: " + socket.io.engine.id);
         }
 
     };
+
 
     /*user_list_dom.onclick = function (event) {
         socket.emit(EMIT_USER_LIST);

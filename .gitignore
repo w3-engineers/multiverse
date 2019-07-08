@@ -126,3 +126,8 @@ dmypy.json
 
 .idea
 /*.bak
+
+config.py
+
+mysqldata
+/.vscode

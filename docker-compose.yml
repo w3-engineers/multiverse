@@ -1,0 +1,29 @@
+version: '2'
+
+services:
+    mariadb:
+        image: mariadb:latest
+        #restart: always
+        environment:
+            - MYSQL_ROOT_PASSWORD=root
+            - MYSQL_DATABASE=multiverse
+        volumes:
+            - './mysqldata:/var/lib/mysql'
+        ports:
+            - '3379:3306'
+    adminer:
+        image: adminer
+        #restart: always
+        ports:
+            - '3380:8080'
+        depends_on:
+          - mariadb
+
+    multiverse:
+        image: sabbir1cse/python37-socketio:mysqldriver
+        volumes:
+            - './:/app'
+        ports:
+          - '5000:5000'
+        depends_on:
+          - mariadb

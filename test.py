@@ -1,15 +1,7 @@
-d = dict()
-d["x"] = {"y": [1, 2]}
+from db_helper.models import Message
 
-n = d.get("x")
-n = n.get("y")
-
-for i in n:
-    print(i)
-    # d["x"]["y"].remove(i)
-d["x"].update({"y": []})
-print(d)
-
-
+user = Message.select().where(Message.id>0)
+for row in user:
+    import pdb; pdb.set_trace()
 # TODO:: Write proper use case for::
 # register, send, receive, user list, ack (send/receive) status.

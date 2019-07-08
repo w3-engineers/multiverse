@@ -1,4 +1,4 @@
-# websockets
-# SimpleWebSocketServer
 python-socketio
 eventlet
+peewee
+mysqlclient
