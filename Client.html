@@ -147,11 +147,14 @@
     }
 
     //events
+
     socket.on(EMIT_USER_LIST, function (data) {
         console.log(EMIT_USER_LIST);
         console.log(data);
         data = JSON.parse(data);
 
+        let user_list_options_len = user_list_dom.options.length;
+        console.log(user_list_options_len);
         for (let a = 0; a < user_list_dom.options.length; a++) {
             user_list_dom.options.remove(a);
         }
@@ -178,34 +181,6 @@
         console.log(EMIT_RCV_INFO);
         console.log(data);
         console.log("SID:: " + socket.io.engine.id);
-    });
-
-
-    socket.on(EMIT_USER_LIST, function (data) {
-        console.log(EMIT_USER_LIST);
-        console.log(data);
-        data = JSON.parse(data);
-        console.log("---USER LIST DEBUG---");
-        let user_list_options_len = user_list_dom.options.length;
-        console.log(user_list_options_len);
-        for (let a = 0; a < user_list_dom.options.length; a++) {
-            console.log(user_list_dom.options[a]);
-            console.log("removed");
-            user_list_dom.options.remove(a);
-        }
-
-        for (let i = 0; i < data.length; i++) {
-            if (data[i] !== name) {
-                let opt = document.createElement('option');
-                opt.innerHTML = data[i];
-                opt.value = data[i];
-                user_list_dom.append(opt);
-                console.log(data[i]);
-            }
-
-        }
-
-        console.log("---USER LIST DEBUG---");
     });
 
     socket.on(EMIT_NEW_MESSAGE, function (data) {
