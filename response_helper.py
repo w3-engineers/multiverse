@@ -47,7 +47,9 @@ def user_list_response(sio, scope):
     :param scope: str
     :return: None
     """
-    sio.emit(EMIT_USER_LIST, set_json(active_user_list(scope)))
+    data = active_user_list(scope)
+    sio.emit(EMIT_USER_LIST, set_json(data))
+    trace_info(data)
 
 
 def buyer_receive_ack_response(sio, scope, txn, receiver, sid):
