@@ -9,7 +9,7 @@ from db_helper.dao import set_user_info, get_user_info, update_user_online_info,
     get_user_message, save_send_message, update_message_ack
 from helpers import get_dict, set_json, get_session_key, get_server_socket
 from response_helper import failed_response, success_response, user_list_response, buyer_receive_ack_response, \
-    new_message_response, sent_ack_response, receive_ack_response, register_response
+    new_message_response, sent_ack_response, receive_ack_response, register_response, send_info_response
 from trace import trace_info, trace_debug
 
 """
@@ -138,6 +138,17 @@ def register(sid: str, scope: str, address: str):
         reason = "Invalid Request. Address: {}, Session: {}, App:: {}".format(address, sid, scope)
         failed_response(sio, reason, address, sid)
         sio.disconnect(sid)
+
+
+@sio.event
+def send_info(sid, scope, sender, receiver, info):
+    user_session = get_session(scope, sender, False)
+    receive_user_session = get_session(scope, receiver, False)
+    if user_session and user_session.sid == sid and receive_user_session:
+        send_info_response(sio, scope, sender, receiver, info, receive_user_session.sid)
+        trace_debug("USER SEND INFO TRIGGERED for {} by {}".format(receiver, sender))
+    else:
+        trace_debug("Sender {}/Receiver {} missing.".format(sender, receiver))
 
 
 @sio.event

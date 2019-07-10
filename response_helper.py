@@ -10,6 +10,8 @@ EMIT_BUYER_RCV_ACK = "buyer_received_ack"
 EMIT_NEW_MESSAGE = "new_message"
 EMIT_SENT_ACK = "sent_ack"
 EMIT_RCV_ACK = "rcv_ack"
+EMIT_SEND_INFO = "send_info"
+EMIT_RCV_INFO = "receive_info"
 
 
 def failed_response(sio, reason, receiver, sid):
@@ -107,3 +109,7 @@ def receive_ack_response(sio, txn, scope, receiver, sid):
 
 def register_response(sio, sid):
     sio.emit(EMIT_REGISTER, room=sid)
+
+
+def send_info_response(sio, scope, sender, receiver, info, sid):
+    sio.emit(EMIT_RCV_INFO, set_json(dict(scope=scope, sender=sender, to=receiver, data=info)), room=sid)
