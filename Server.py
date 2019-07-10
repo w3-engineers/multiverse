@@ -3,7 +3,7 @@ from eventlet.wsgi import server as eventlet_server
 from eventlet import listen as eventlet_listen
 from socketio import Server, WSGIApp
 
-from config import HOST, PORT
+from config import HOST, PORT, DEBUG
 from db_helper.models import MESSAGE_STATUS
 from db_helper.dao import set_user_info, get_user_info, update_user_online_info, active_user_list, \
     get_user_message, save_send_message, update_message_ack
@@ -20,7 +20,15 @@ Possible Solution Can be pass Server IP and make a internal emit to trigger.
 basicConfig(level=CRITICAL)
 
 sio = Server()
-app = WSGIApp(sio)
+
+if DEBUG:
+    app = WSGIApp(sio, static_files={
+        '/': 'Client.html',
+        '/socket.io.js': 'socket.io.js',
+        # '/static/style.css': 'static/style.css',
+    })
+else:
+    app = WSGIApp(sio)
 
 SCOPE_WHITE_LIST = {"telemesh"}
 
@@ -61,7 +69,7 @@ def remove_session(sid):
             del SESSION_SID[sid]
             return info
     except KeyError as e:
-        trace_debug(str(e)+" :: Session not found on USER_SESSION/SESSION_SID.")
+        trace_debug(str(e) + " :: Session not found on USER_SESSION/SESSION_SID.")
         return False
 
 
