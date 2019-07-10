@@ -185,8 +185,12 @@
         console.log(EMIT_USER_LIST);
         console.log(data);
         data = JSON.parse(data);
-
+        console.log("---USER LIST DEBUG---");
+        let user_list_options_len = user_list_dom.options.length;
+        console.log(user_list_options_len);
         for (let a = 0; a < user_list_dom.options.length; a++) {
+            console.log(user_list_dom.options[a]);
+            console.log("removed");
             user_list_dom.options.remove(a);
         }
 
@@ -196,9 +200,12 @@
                 opt.innerHTML = data[i];
                 opt.value = data[i];
                 user_list_dom.append(opt);
+                console.log(data[i]);
             }
 
         }
+
+        console.log("---USER LIST DEBUG---");
     });
 
     socket.on(EMIT_NEW_MESSAGE, function (data) {
