@@ -59,6 +59,16 @@ def get_session(scope, address, online=True):
         return user
 
 
+def no_session(sid=None, scope=None, address=None):
+    if SESSION_SID.get(sid):
+        sio.disconnect(sid)
+        return False
+    elif USER_SESSION.get(get_session_key(scope, address)):
+        sio.disconnect(sid)
+        return False
+    return True
+
+
 def remove_session(sid):
     update_user_online_info(sid)
     try:
@@ -80,7 +90,8 @@ def connect(sid, env):
 
 @sio.event
 def register(sid: str, scope: str, address: str):
-    if sid and scope and address:
+
+    if (no_session(sid=sid) or no_session(scope=scope, address=address)) and sid and scope and address:
 
         sid = sid.strip()
         scope = scope.strip()
@@ -143,6 +154,8 @@ def register(sid: str, scope: str, address: str):
                                 address, sid)
                 sio.disconnect(sid)
     else:
+        trace_info("USER SESSION:: {}".format(USER_SESSION))
+        trace_info("USER SID:: {}".format(SESSION_SID))
         reason = "Invalid Request. Address: {}, Session: {}, App:: {}".format(address, sid, scope)
         failed_response(sio, reason, address, sid)
         sio.disconnect(sid)
@@ -195,22 +208,31 @@ def send_message(sid, scope, address, message):
 def buyer_received(sid, c_address, scope, address, txn):
     ack_user_session = get_session(scope, address, False)
     current_user_session = get_session(scope, c_address, False)
-    if ack_user_session and get_server_socket(sio, ack_user_session.sid) and current_user_session:
+    if ack_user_session and get_server_socket(sio, ack_user_session.sid) \
+            and current_user_session and get_server_socket(sio, current_user_session.sid)\
+            and current_user_session.sid == sid:
         if update_message_ack(txn, current_user_session):
-            trace_debug("Receive Ack Done -->{}, {}".format(ack_user_session.address, ack_user_session.sid))
+            trace_debug("Receive Ack Done for both-->{}, {}".format(ack_user_session.address, ack_user_session.sid))
             buyer_receive_ack_response(sio, scope, txn, ack_user_session.address, ack_user_session.sid)
-            buyer_receive_ack_response(sio, scope, txn, current_user_session.address, sid)
+            buyer_receive_ack_response(sio, scope, txn, current_user_session.address, current_user_session.sid)
         else:
             trace_debug(current_user_session)
             trace_debug("---**DB ERROR WHILE DELETE!**----")
-    elif current_user_session and ack_user_session:
+    elif current_user_session and current_user_session.sid == sid and get_server_socket(sio, sid) \
+            and ack_user_session and ack_user_session.sid != sid:
         if update_message_ack(txn, current_user_session, ack_user_session.id):
-            trace_debug("ACK User Status Updated as he not online!")
-            trace_debug("Current User for txn: {}, UserId: {}".format(txn, c_address))
+            trace_debug("Receive Ack Done for Sender-->{}, {}".format(ack_user_session.address, ack_user_session.sid))
             receive_ack_response(sio, txn, scope, current_user_session.address, sid)
-        else:
-            trace_debug(current_user_session)
-            trace_debug("---**DB ERROR WHILE DELETE! UPDATE!!!**----")
+    elif ack_user_session and get_server_socket(sio, ack_user_session.sid):
+        reason = "Duplicate ACK USER {}".format(address)
+        trace_debug(reason)
+        failed_response(sid, reason, address, ack_user_session.sid)
+        sio.disconnect(ack_user_session.sid)
+    elif current_user_session:
+        reason = "Duplicate CURRENT USER {}".format(c_address)
+        trace_debug(reason)
+        failed_response(sid, reason, current_user_session.address, current_user_session.sid)
+        sio.disconnect(current_user_session.sid)
     else:
         trace_debug("ACK User not online. Details--> {}, {}, {}, {}".format(sid, scope, address, txn))
 
