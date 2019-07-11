@@ -85,7 +85,13 @@ def remove_session(sid):
 
 @sio.event
 def connect(sid, env):
-    register_response(sio, sid)
+    if no_session(sid=sid):
+        register_response(sio, sid)
+    else:
+        reason = "SID ALREADY FOUND IN SESSION SID."
+        trace_info(reason)
+        failed_response(sio, "SID ALREADY FOUND IN SESSION SID.", "N/A", sid)
+        sio.disconnect(sid)
 
 
 @sio.event
