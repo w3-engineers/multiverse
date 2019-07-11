@@ -40,17 +40,18 @@ def set_session(sid, scope, address):
     session_key = get_session_key(scope, address)
     session = USER_SESSION.get(session_key, None)
     if session and session.sid != sid:
-        trace_info("Duplicate session for {}, while trying to store session.".format(address))
+        trace_debug("Duplicate Session for {}, SID:: {}. set_session".format(address, sid))
         return None
 
     user = set_user_info(sid, scope, address)
     if user:
         user_data = get_user_info(scope, address)
         if user_data:
-
             USER_SESSION.update({session_key: user_data})
             SESSION_SID.update({sid: session_key})
             return USER_SESSION.get(SESSION_SID.get(sid, None))
+    else:
+        trace_debug("Session set failed for {}, SID:: {}. set_session".format(address, sid))
 
 
 def get_session(scope, address, online=True):
@@ -63,6 +64,7 @@ def get_session(scope, address, online=True):
     elif not online:
         user = get_user_info(scope, address, online)
         return user
+    trace_debug("No session found for {}".format(address))
 
 
 def no_session(sid=None, scope=None, address=None):
@@ -72,6 +74,7 @@ def no_session(sid=None, scope=None, address=None):
     elif USER_SESSION.get(get_session_key(scope, address)):
         sio.disconnect(sid)
         return False
+
     return True
 
 
@@ -85,7 +88,7 @@ def remove_session(sid):
             del SESSION_SID[sid]
             return info
     except KeyError as e:
-        trace_debug(str(e) + " :: Session not found on USER_SESSION/SESSION_SID.")
+        trace_debug(str(e) + " :: Session not found on USER_SESSION/SESSION_SID. SID:: " + sid)
         return False
 
 
@@ -101,7 +104,6 @@ def connect(sid, env):
 
 @sio.event
 def register(sid: str, scope: str, address: str):
-
     if (no_session(sid=sid) or no_session(scope=scope, address=address)) and sid and scope and address:
 
         sid = sid.strip()
@@ -113,7 +115,6 @@ def register(sid: str, scope: str, address: str):
         else:
             user_session = get_session(scope, address)
             if user_session and user_session.is_online == 1:
-                trace_debug("Duplicate connection found for -> {}, {}".format(user_session.address, user_session.sid))
                 try:
                     if get_server_socket(sio, user_session.sid):
                         sio.disconnect(user_session.sid)
@@ -131,13 +132,14 @@ def register(sid: str, scope: str, address: str):
                     for msg in new_message:
                         msg_dict = get_dict(msg.message)
                         if msg.status == MESSAGE_STATUS['buyer']:
-                            buyer_receive_ack_response(sio, scope, msg.key, user_session.address, sid)
+
                             if update_message_ack(msg.key, user_session):
-                                trace_debug("Message ACK {} sent for this user {}".
-                                            format(msg.message, user_session.address))
+                                trace_debug("ACK Done and Removed for {}. ADDRESS: {}, SID:: {}. Key:: {}".
+                                            format(msg.message, user_session.address, sid, msg.key))
+                                buyer_receive_ack_response(sio, scope, msg.key, user_session.address, sid)
                             else:
-                                trace_debug("DB ERROR FOR ACK {}. user {}".
-                                            format(msg.message, user_session.address))
+                                trace_debug("DB ERROR FOR ACK {}. user {}. Message Key:: {}".
+                                            format(msg.message, user_session.address, msg.key))
                         else:
                             new_message_response(sio, scope, msg.key, msg_dict.get('text', None),
                                                  msg_dict.get('sender', None), user_session.address, sid)
@@ -146,20 +148,20 @@ def register(sid: str, scope: str, address: str):
 
                         # If Sender and receiver both are available
                         if receiver and get_server_socket(sio, receiver.sid):
-
-                            trace_debug("Receiver for new message {}".format(receiver.address))
-
                             # send receive ack for receive to receiver
                             receive_ack_response(sio, msg_dict['txn'], scope, receiver.address, receiver.sid)
                             if update_message_ack(msg_dict["txn"], receiver):
                                 # send receive ack for buyer/targeted user
                                 buyer_receive_ack_response(sio, scope, msg_dict['txn'], receiver.address, receiver.sid)
-                                trace_debug("ACK for receiver {}".format(receiver.address))
+                                trace_debug("ACK DONE and removed {} with SID:: {}, TXN:: {}".
+                                            format(receiver.address, receiver.sid, msg_dict['txn']))
                         else:
                             trace_info("---------Receiver missing check sockets-------")
-                            trace_info(sio.eio.sockets)
                             trace_info(receiver)
-                            trace_debug("Receiver {} not found".format(msg_dict['sender']))
+                            trace_debug("Receiver {} not found. TXN:: {}".format(msg_dict['sender'], msg_dict['txn']))
+                            trace_debug("SESSION: {}, SID: {}".format(USER_SESSION, SESSION_SID))
+                else:
+                    trace_debug("No message found for {}, SID:: {}".format(address, sid))
             else:
                 failed_response(sio, "User session establishment failed for {}. Try again.".format(address),
                                 address, sid)
@@ -195,21 +197,22 @@ def send_message(sid, scope, address, message):
             failed_response(sio, reason, address, sid)
         else:
             raw_send_read_msg = {"txn": msg["txn"], "text": msg['text'],
-                                 "sender": address}
+                                 "sender": address, "to": receiver.address}
 
-            trace_debug("Receiver={}, Message={}".format(receiver.address, raw_send_read_msg))
-            raw_send_read_msg['to'] = receiver.address
             save_message = save_send_message(receiver, msg['txn'], set_json(raw_send_read_msg))
             if save_message:
                 if receiver and get_server_socket(sio, receiver.sid):
-                    new_message_response(sio, scope, msg['txn'], msg['text'], address, receiver.address, receiver.sid)
+                    new_message_response(sio, scope, msg['txn'], msg['text'], address,
+                                         receiver.address, receiver.sid)
                     receive_ack_response(sio, msg['txn'], scope, user_session.address, sid)
-                    trace_debug("Message received by -->{}, {}".format(receiver.address, receiver.sid))
+                    trace_debug("Message received by -->{}, SID: {}, TXN: {}, MSG: {}".
+                                format(receiver.address, receiver.sid, msg['txn'], msg['txn']))
                 else:
                     sent_ack_response(sio, msg['txn'], scope, user_session.address, sid)
-                    trace_debug("Message sent to -->{}, {}".format(receiver.address, receiver.sid))
+                    trace_debug("Message sent to -->{}, SID: {}, TXN: {}, MSG: {}".
+                                format(receiver.address, receiver.sid, msg['txn'], msg['text']))
             else:
-                trace_info("Message storage refused to save stuff. ({})".format(save_message))
+                trace_info("DB STORE FAILED. MSG: {}, RAW MSG: {}".format(msg, raw_send_read_msg))
     else:
         trace_info(">>>INVALID SESSION FOR {}".format(address))
         sio.disconnect(sid)
@@ -220,7 +223,7 @@ def buyer_received(sid, c_address, scope, address, txn):
     ack_user_session = get_session(scope, address, False)
     current_user_session = get_session(scope, c_address, False)
     if ack_user_session and get_server_socket(sio, ack_user_session.sid) \
-            and current_user_session and get_server_socket(sio, current_user_session.sid)\
+            and current_user_session and get_server_socket(sio, current_user_session.sid) \
             and current_user_session.sid == sid:
         if update_message_ack(txn, current_user_session):
             trace_debug("Receive Ack Done for both-->{}, {}".format(ack_user_session.address, ack_user_session.sid))
@@ -229,11 +232,14 @@ def buyer_received(sid, c_address, scope, address, txn):
         else:
             trace_debug(current_user_session)
             trace_debug("---**DB ERROR WHILE DELETE!**----")
-    elif current_user_session and current_user_session.sid == sid and get_server_socket(sio, sid) \
+    elif current_user_session and current_user_session.sid == sid \
+            and get_server_socket(sio, sid) \
             and ack_user_session and ack_user_session.sid != sid:
         if update_message_ack(txn, current_user_session, ack_user_session.id):
-            trace_debug("Receive Ack Done for Sender-->{}, {}".format(ack_user_session.address, ack_user_session.sid))
             receive_ack_response(sio, txn, scope, current_user_session.address, sid)
+            trace_debug("Receiver {} missing. Receive ACK to sender {}. TXN: {}".format(address, c_address, txn))
+        else:
+            trace_debug("DB UPDATE FAILED FOR RECEIVER MISSING UPDATE. TXN {}".format(txn))
     elif ack_user_session and get_server_socket(sio, ack_user_session.sid):
         reason = "Duplicate ACK USER {}".format(address)
         trace_debug(reason)
