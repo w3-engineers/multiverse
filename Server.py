@@ -41,8 +41,8 @@ def set_session(sid, scope, address):
     session = USER_SESSION.get(session_key, None)
     if session and session.sid != sid:
         trace_info("Duplicate session for {}, while trying to store session.".format(address))
-        return False
-    
+        return None
+
     user = set_user_info(sid, scope, address)
     if user:
         user_data = get_user_info(scope, address)
@@ -94,9 +94,8 @@ def connect(sid, env):
     if no_session(sid=sid):
         register_response(sio, sid)
     else:
-        reason = "SID ALREADY FOUND IN SESSION SID."
-        trace_info(reason)
-        failed_response(sio, "SID ALREADY FOUND IN SESSION SID.", "N/A", sid)
+        reason = "SID ALREADY FOUND IN SESSION_SID."
+        failed_response(sio, reason, "N/A", sid)
         sio.disconnect(sid)
 
 
