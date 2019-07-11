@@ -37,11 +37,17 @@ SESSION_SID = dict()
 
 
 def set_session(sid, scope, address):
+    session_key = get_session_key(scope, address)
+    session = USER_SESSION.get(session_key, None)
+    if session and session.sid != sid:
+        trace_info("Duplicate session for {}, while trying to store session.".format(address))
+        return False
+    
     user = set_user_info(sid, scope, address)
     if user:
         user_data = get_user_info(scope, address)
         if user_data:
-            session_key = get_session_key(scope, address)
+
             USER_SESSION.update({session_key: user_data})
             SESSION_SID.update({sid: session_key})
             return USER_SESSION.get(SESSION_SID.get(sid, None))
@@ -182,7 +188,7 @@ def send_info(sid, scope, sender, receiver, info):
 def send_message(sid, scope, address, message):
     user_session = get_session(scope, address)
     if user_session.sid == sid:
-        trace_debug("Name={}. Message={}".format(address, message))
+        # trace_debug("Name={}. Message={}".format(address, message))
         msg = get_dict(message)
         receiver = get_session(scope, msg['receiver'], False)
         if not receiver:
@@ -193,20 +199,20 @@ def send_message(sid, scope, address, message):
                                  "sender": address}
 
             trace_debug("Receiver={}, Message={}".format(receiver.address, raw_send_read_msg))
-            save_message = None
-            if receiver:
-                raw_send_read_msg['to'] = receiver.address
-                save_message = save_send_message(receiver, msg['txn'], set_json(raw_send_read_msg))
-            if not save_message:
-                trace_info("Message storage refused to save stuff. ({})".format(save_message))
-            elif receiver and get_server_socket(sio, receiver.sid):
-                new_message_response(sio, scope, msg['txn'], msg['text'], address, receiver.address, receiver.sid)
-                receive_ack_response(sio, msg['txn'], scope, user_session.address, sid)
-                trace_debug("Message received by -->{}, {}".format(receiver.address, receiver.sid))
+            raw_send_read_msg['to'] = receiver.address
+            save_message = save_send_message(receiver, msg['txn'], set_json(raw_send_read_msg))
+            if save_message:
+                if receiver and get_server_socket(sio, receiver.sid):
+                    new_message_response(sio, scope, msg['txn'], msg['text'], address, receiver.address, receiver.sid)
+                    receive_ack_response(sio, msg['txn'], scope, user_session.address, sid)
+                    trace_debug("Message received by -->{}, {}".format(receiver.address, receiver.sid))
+                else:
+                    sent_ack_response(sio, msg['txn'], scope, user_session.address, sid)
+                    trace_debug("Message sent to -->{}, {}".format(receiver.address, receiver.sid))
             else:
-                sent_ack_response(sio, msg['txn'], scope, user_session.address, sid)
-                trace_debug("Message sent to -->{}, {}".format(receiver.address, receiver.sid))
+                trace_info("Message storage refused to save stuff. ({})".format(save_message))
     else:
+        trace_info(">>>INVALID SESSION FOR {}".format(address))
         sio.disconnect(sid)
 
 
