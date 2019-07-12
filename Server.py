@@ -111,7 +111,7 @@ def register(sid: str, scope: str, address: str):
         address = address.strip()
 
         if scope not in SCOPE_WHITE_LIST:
-            failed_response(sid, "Wrong APP/Scope", address, sid)
+            failed_response(sio, "Wrong APP/Scope", address, sid)
         else:
             user_session = get_session(scope, address)
             if user_session and user_session.is_online == 1:
@@ -246,12 +246,12 @@ def buyer_received(sid, c_address, scope, address, txn):
     elif ack_user_session and get_server_socket(sio, ack_user_session.sid):
         reason = "Duplicate ACK USER {}".format(address)
         trace_debug(reason)
-        failed_response(sid, reason, address, ack_user_session.sid)
+        failed_response(sio, reason, address, ack_user_session.sid)
         sio.disconnect(ack_user_session.sid)
     elif current_user_session:
         reason = "Duplicate CURRENT USER {}".format(c_address)
         trace_debug(reason)
-        failed_response(sid, reason, current_user_session.address, current_user_session.sid)
+        failed_response(sio, reason, current_user_session.address, current_user_session.sid)
         sio.disconnect(current_user_session.sid)
     else:
         trace_debug("ACK User not online. Details--> {}, {}, {}, {}".format(sid, scope, address, txn))
