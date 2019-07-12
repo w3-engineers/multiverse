@@ -259,7 +259,8 @@ def disconnect(sid):
     user = remove_session(sid)
     if user:
         trace_debug("Disconnected-->{}".format(user))
-        user_list_response(sio, user.scope)
+        if USER_SESSION:
+            user_list_response(sio, user.scope)
     else:
         trace_info("Disconnected with SID:: {}. No Info on DB!".format(sid))
 
