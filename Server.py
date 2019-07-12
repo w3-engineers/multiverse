@@ -206,7 +206,7 @@ def send_message(sid, scope, address, message):
                                          receiver.address, receiver.sid)
                     receive_ack_response(sio, msg['txn'], scope, user_session.address, sid)
                     trace_debug("Message received by -->{}, SID: {}, TXN: {}, MSG: {}".
-                                format(receiver.address, receiver.sid, msg['txn'], msg['txn']))
+                                format(receiver.address, receiver.sid, msg['txn'], msg['text']))
                 else:
                     sent_ack_response(sio, msg['txn'], scope, user_session.address, sid)
                     trace_debug("Message sent to -->{}, SID: {}, TXN: {}, MSG: {}".
