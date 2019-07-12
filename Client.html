@@ -72,6 +72,7 @@
 
 <div>
     <div>
+        <button onclick="user_send_info()">Send Info Test!</button>
         <h3>Chat
             <History></History>
         </h3>
@@ -103,6 +104,8 @@
     EMIT_BUYER_RCV_ACK = "buyer_received_ack";
     EMIT_SUCCESS = "success";
     EMIT_FAIL = "failed";
+    EMIT_SEND_INFO = "send_info";
+    EMIT_RCV_INFO = "receive_info";
 
     let appname = "telemesh";
     // let txn;
@@ -115,8 +118,8 @@
         window.location.reload();
     }
 
-    // let socket = io('http://localhost:5000');
-    let socket = io('https://multiverse.w3engineers.com');
+    let socket = io(window.location.href);
+    // let socket = io('https://multiverse.w3engineers.com');
     let connected = false;
 
 
@@ -137,12 +140,21 @@
         dom.innerHTML = "<strong style='color: green'>Waiting form Final ACK</strong>";
     }
 
+
+    function user_send_info() {
+        console.log(EMIT_SEND_INFO);
+        socket.emit(EMIT_SEND_INFO, appname, name, name, JSON.stringify({name: "Mark"}));
+    }
+
     //events
+
     socket.on(EMIT_USER_LIST, function (data) {
         console.log(EMIT_USER_LIST);
         console.log(data);
         data = JSON.parse(data);
 
+        let user_list_options_len = user_list_dom.options.length;
+        console.log(user_list_options_len);
         for (let a = 0; a < user_list_dom.options.length; a++) {
             user_list_dom.options.remove(a);
         }
@@ -163,6 +175,12 @@
         console.log(data);
         console.log("SID:: " + socket.io.engine.id);
         socket.emit(EMIT_REGISTER, appname, name);
+    });
+
+    socket.on(EMIT_RCV_INFO, function (data) {
+        console.log(EMIT_RCV_INFO);
+        console.log(data);
+        console.log("SID:: " + socket.io.engine.id);
     });
 
     socket.on(EMIT_NEW_MESSAGE, function (data) {

@@ -10,7 +10,7 @@ def get_dict(json):
 
 
 def get_session_key(scope, address):
-    return address + scope
+    return str(address) + str(scope)
 
 
 def get_server_socket(sio, key):
