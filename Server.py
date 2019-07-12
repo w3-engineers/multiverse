@@ -94,6 +94,9 @@ def remove_session(sid):
 
 @sio.event
 def connect(sid, env):
+    headers = sio.environ.get(sid)
+    trace_info(headers.get('REMOTE_ADDR'))
+
     if no_session(sid=sid):
         register_response(sio, sid)
     else:
