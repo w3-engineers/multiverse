@@ -138,8 +138,10 @@ def register(sid: str, scope: str, address: str):
                                             format(msg.message, user_session.address, sid, msg.key))
                                 buyer_receive_ack_response(sio, scope, msg.key, user_session.address, sid)
                             else:
-                                trace_debug("DB ERROR FOR ACK {}. user {}. Message Key:: {}".
-                                            format(msg.message, user_session.address, msg.key))
+
+                                failed_response(sio, "DB ERROR FOR ACK {}. user {}. Message Key:: {}".
+                                                format(msg.message, user_session.address, msg.key),
+                                                user_session.address, user_session.sid)
                         else:
                             new_message_response(sio, scope, msg.key, msg_dict.get('text', None),
                                                  msg_dict.get('sender', None), user_session.address, sid)
@@ -212,7 +214,7 @@ def send_message(sid, scope, address, message):
                     trace_debug("Message sent to -->{}, SID: {}, TXN: {}, MSG: {}".
                                 format(receiver.address, receiver.sid, msg['txn'], msg['text']))
             else:
-                trace_info("DB STORE FAILED. MSG: {}, RAW MSG: {}".format(msg, raw_send_read_msg))
+                failed_response(sio, "DB STORE FAILED. MSG: {}, RAW MSG: {}".format(msg, raw_send_read_msg), address, sid)
     else:
         trace_info(">>>INVALID SESSION FOR {}".format(address))
         sio.disconnect(sid)
@@ -232,6 +234,7 @@ def buyer_received(sid, c_address, scope, address, txn):
         else:
             trace_debug(current_user_session)
             trace_debug("---**DB ERROR WHILE DELETE!**----")
+            failed_response(sio, "DB ERROR WHILE DELETE", c_address, sid)
     elif current_user_session and current_user_session.sid == sid \
             and get_server_socket(sio, sid) \
             and ack_user_session and ack_user_session.sid != sid:
@@ -239,7 +242,7 @@ def buyer_received(sid, c_address, scope, address, txn):
             receive_ack_response(sio, txn, scope, current_user_session.address, sid)
             trace_debug("Receiver {} missing. Receive ACK to sender {}. TXN: {}".format(address, c_address, txn))
         else:
-            trace_debug("DB UPDATE FAILED FOR RECEIVER MISSING UPDATE. TXN {}".format(txn))
+            failed_response(sio, "DB UPDATE FAILED FOR RECEIVER MISSING UPDATE. TXN {}".format(txn), c_address, sid)
     elif ack_user_session and get_server_socket(sio, ack_user_session.sid):
         reason = "Duplicate ACK USER {}".format(address)
         trace_debug(reason)
@@ -252,6 +255,7 @@ def buyer_received(sid, c_address, scope, address, txn):
         sio.disconnect(current_user_session.sid)
     else:
         trace_debug("ACK User not online. Details--> {}, {}, {}, {}".format(sid, scope, address, txn))
+        buyer_receive_ack_response(sio, scope, txn, c_address, sid)
 
 
 @sio.event
