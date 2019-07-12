@@ -239,7 +239,7 @@ def buyer_received(sid, c_address, scope, address, txn):
             and get_server_socket(sio, sid) \
             and ack_user_session and ack_user_session.sid != sid:
         if update_message_ack(txn, current_user_session, ack_user_session.id):
-            receive_ack_response(sio, txn, scope, current_user_session.address, sid)
+            # success_response(sio, "", current_user_session.address, sid)
             trace_debug("Receiver {} missing. Receive ACK to sender {}. TXN: {}".format(address, c_address, txn))
         else:
             failed_response(sio, "DB UPDATE FAILED FOR RECEIVER MISSING UPDATE. TXN {}".format(txn), c_address, sid)
