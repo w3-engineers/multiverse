@@ -12,7 +12,7 @@ from helpers import get_dict, set_json, get_session_key, get_server_socket
 from response_helper import failed_response, success_response, user_list_response, buyer_receive_ack_response, \
     new_message_response, sent_ack_response, receive_ack_response, register_response, send_info_response, EMIT_REGISTER
 from trace import trace_info, trace_debug
-from Client import SendMessage, SendSentACK
+from Client import SendMessage, SendSentACK, DuplicateConnectionDestroy
 
 """
 TODO:: Auto Scale System Notification Implement.
@@ -66,6 +66,10 @@ def get_session(scope, address, online=True):
     elif not online:
         user = get_user_info(scope, address, online)
         return user
+    else:
+        user = get_user_info(scope, address)
+        if user and user.is_online:
+            return user
     trace_debug("No session found for {}".format(address))
 
 
@@ -132,6 +136,16 @@ def register(sid: str, scope: str, address: str):
                 try:
                     if get_server_socket(sio, user_session.sid):
                         sio.disconnect(user_session.sid)
+                    else:
+                        if user_session.url == get_server_info(sio, sid):
+                            remove_session(sid)
+                            trace_info("BIG BLOCKER RECOVERED for {}".join(user_session.address))
+                        else:
+                            trace_debug("DUPLICATE CLUSTER BLOCK")
+                            dth = DuplicateConnectionDestroy(dict(sid=user_session.sid, surl=user_session.url))
+                            dth.start()
+                            dth.join()
+                            trace_debug("Disconnection from other server")
                 except KeyError as e:
                     trace_debug(str(e) + "-->No SID available on server as {}".format(user_session.sid))
                     remove_session(user_session.sid)
@@ -288,21 +302,23 @@ def buyer_received(sid, c_address, scope, address, txn):
 
 @sio.event
 def disconnect(sid):
-    user = remove_session(sid)
-    if user:
-        trace_debug("Disconnected-->{}".format(user))
-        if USER_SESSION:
-            user_list_response(sio, user.scope)
-            # SQS
-    else:
-        trace_info("Disconnected with SID:: {}. No Info on DB!".format(sid))
+    if SESSION_SID.get(sid):
+        user = remove_session(sid)
+        if user:
+            trace_debug("Disconnected-->{}".format(user))
+            if USER_SESSION:
+                user_list_response(sio, user.scope)
+        else:
+            trace_info("Disconnect--> No info on DB!")
+
+    trace_info("Disconnected with SID:: {}.".format(sid))
 
 
 # CLUSTER --!
 @sio.event
 def cluster_send_message(sid, data):
     if get_server_info(sio, data['rsid']):
-        trace_info("Triggered----> {}".format(data))
+        trace_info("SEND Triggered----> {}".format(data))
         new_message_response(sio, data['scope'], data['txn'], data['text'],
                              data['saddress'], data['raddress'], data['rsid'])
 
@@ -316,10 +332,18 @@ def cluster_send_message(sid, data):
 @sio.event
 def cluster_send_ack_message(sid, data):
     if get_server_info(sio, data['ssid']):
-        trace_info("Triggered----> {}".format(data))
+        trace_info("ACK Triggered----> {}".format(data))
         receive_ack_response(sio, data['txn'], data['scope'],
                              data['saddress'], data['ssid'])
 
+    sio.disconnect(sid)
+
+
+@sio.event
+def cluster_destroy_connection(sid, data):
+    if get_server_info(sio, data['sid']):
+        trace_info("Disconnection Triggered----> {}".format(data))
+        sio.disconnect(data['sid'])
     sio.disconnect(sid)
 
 
