@@ -1,7 +1,8 @@
-from socketio import Client
+from socketio import Client, exceptions
 from threading import Thread
 
 from config import HTTP_PREFIX
+from trace import trace_info
 
 
 class SendMessage(Thread):
@@ -13,14 +14,18 @@ class SendMessage(Thread):
         Thread.__init__(self)
         self.data = data
         self.sio = Client()
-        self.sio.connect(HTTP_PREFIX+data['rurl'])
 
     def run(self):
-        sio = self.sio
-        while True:
-            if sio.eio.state == "connected":
-                self.sio.emit("cluster_send_message", self.data)
-                break
+        try:
+            self.sio.connect(HTTP_PREFIX+self.data['rurl'])
+            sio = self.sio
+            while True:
+                if sio.eio.state == "connected":
+                    self.sio.emit("cluster_send_message", self.data)
+                    break
+        except exceptions.ConnectionError as e:
+            trace_info(str(e))
+            return
 
         return
 
@@ -37,11 +42,14 @@ class SendSentACK(Thread):
         self.sio.connect(HTTP_PREFIX+data['surl'])
 
     def run(self):
-        sio = self.sio
-
-        while True:
-            if sio.eio.state == "connected":
-                self.sio.emit("cluster_send_ack_message", self.data)
-                break
+        try:
+            sio = self.sio
+            while True:
+                if sio.eio.state == "connected":
+                    self.sio.emit("cluster_send_ack_message", self.data)
+                    break
+        except exceptions.ConnectionError as ex:
+            trace_info(str(ex))
+            return
 
         return

@@ -82,10 +82,14 @@ def no_session(sid=None, scope=None, address=None):
 
 def get_server_info(socket, sid):
     headers = socket.environ.get(sid)
-    trace_info(headers.get('REMOTE_ADDR'))
-    trace_info(headers.get('SERVER_NAME'))
-    trace_info(headers.get('SERVER_PORT'))
-    return headers.get("SERVER_NAME", HOST), headers.get("SERVER_PORT", PORT)
+    raw_headers = headers.get('headers_raw')
+    # trace_info(headers.get('REMOTE_ADDR'))
+    # trace_info(headers.get('SERVER_NAME'))
+    # trace_info(headers.get('SERVER_PORT'))
+    if raw_headers and len(raw_headers) > 2:
+        if 'Host' in raw_headers[0]:
+            return raw_headers[0][1]
+    return headers.get("SERVER_NAME", HOST) + ":" + headers.get("SERVER_PORT", PORT)
 
 
 def remove_session(sid):
@@ -133,7 +137,7 @@ def register(sid: str, scope: str, address: str):
                     remove_session(user_session.sid)
 
             url = get_server_info(sio, sid)
-            user_session = set_session(sid, scope, address, url[0] + ":" + url[1])
+            user_session = set_session(sid, scope, address, url)
             if user_session:
                 success_response(sio, "Session created for {}".format(user_session.address), user_session.address, sid)
                 user_list_response(sio, scope)
