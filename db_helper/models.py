@@ -2,7 +2,7 @@ from datetime import datetime
 from db_helper.connector import BaseModel
 from peewee import BooleanField, CharField, \
     DateTimeField, ForeignKeyField, TextField,\
-    CompositeKey, UUIDField
+    CompositeKey, UUIDField, Index
 
 MESSAGE_STATUS = dict(server=0, buyer=1)
 
@@ -15,6 +15,7 @@ class User(BaseModel):
     first_seen = DateTimeField(default=datetime.now)
     last_seen = DateTimeField(default=datetime.now)
     is_online = BooleanField(default=False)
+    url = CharField(max_length=100, index=True, null=True)
 
     class Meta:
         address_scope = CompositeKey('address', 'scope')

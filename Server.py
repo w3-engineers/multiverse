@@ -1,4 +1,5 @@
 from logging import basicConfig, CRITICAL
+from os import environ
 from eventlet.wsgi import server as eventlet_server
 from eventlet import listen as eventlet_listen
 from socketio import Server, WSGIApp
@@ -9,8 +10,9 @@ from db_helper.dao import set_user_info, get_user_info, update_user_online_info,
     get_user_message, save_send_message, update_message_ack
 from helpers import get_dict, set_json, get_session_key, get_server_socket
 from response_helper import failed_response, success_response, user_list_response, buyer_receive_ack_response, \
-    new_message_response, sent_ack_response, receive_ack_response, register_response, send_info_response
+    new_message_response, sent_ack_response, receive_ack_response, register_response, send_info_response, EMIT_REGISTER
 from trace import trace_info, trace_debug
+from Client import SendMessage, SendSentACK
 
 """
 TODO:: Auto Scale System Notification Implement.
@@ -36,14 +38,14 @@ USER_SESSION = dict()
 SESSION_SID = dict()
 
 
-def set_session(sid, scope, address):
+def set_session(sid, scope, address, url):
     session_key = get_session_key(scope, address)
     session = USER_SESSION.get(session_key, None)
     if session and session.sid != sid:
         trace_debug("Duplicate Session for {}, SID:: {}. set_session".format(address, sid))
         return None
 
-    user = set_user_info(sid, scope, address)
+    user = set_user_info(sid, scope, address, url)
     if user:
         user_data = get_user_info(scope, address)
         if user_data:
@@ -78,6 +80,14 @@ def no_session(sid=None, scope=None, address=None):
     return True
 
 
+def get_server_info(socket, sid):
+    headers = socket.environ.get(sid)
+    trace_info(headers.get('REMOTE_ADDR'))
+    trace_info(headers.get('SERVER_NAME'))
+    trace_info(headers.get('SERVER_PORT'))
+    return headers.get("SERVER_NAME", HOST), headers.get("SERVER_PORT", PORT)
+
+
 def remove_session(sid):
     update_user_online_info(sid)
     try:
@@ -94,9 +104,6 @@ def remove_session(sid):
 
 @sio.event
 def connect(sid, env):
-    headers = sio.environ.get(sid)
-    trace_info(headers.get('REMOTE_ADDR'))
-
     if no_session(sid=sid):
         register_response(sio, sid)
     else:
@@ -125,10 +132,12 @@ def register(sid: str, scope: str, address: str):
                     trace_debug(str(e) + "-->No SID available on server as {}".format(user_session.sid))
                     remove_session(user_session.sid)
 
-            user_session = set_session(sid, scope, address)
+            url = get_server_info(sio, sid)
+            user_session = set_session(sid, scope, address, url[0] + ":" + url[1])
             if user_session:
                 success_response(sio, "Session created for {}".format(user_session.address), user_session.address, sid)
                 user_list_response(sio, scope)
+                # SQS
 
                 new_message = get_user_message(user_session)
                 if new_message:
@@ -161,6 +170,8 @@ def register(sid: str, scope: str, address: str):
                                 trace_debug("ACK DONE and removed {} with SID:: {}, TXN:: {}".
                                             format(receiver.address, receiver.sid, msg_dict['txn']))
                         else:
+                            # SQS
+
                             trace_info("---------Receiver missing check sockets-------")
                             trace_info(receiver)
                             trace_debug("Receiver {} not found. TXN:: {}".format(msg_dict['sender'], msg_dict['txn']))
@@ -213,11 +224,20 @@ def send_message(sid, scope, address, message):
                     trace_debug("Message received by -->{}, SID: {}, TXN: {}, MSG: {}".
                                 format(receiver.address, receiver.sid, msg['txn'], msg['text']))
                 else:
+                    # SQS
                     sent_ack_response(sio, msg['txn'], scope, user_session.address, sid)
+                    data = dict(rurl=receiver.url, surl=user_session.url, scope=scope, txn=msg['txn'],
+                                text=msg['text'], saddress=address, ssid=user_session.sid,
+                                raddress=receiver.address, rsid=receiver.sid)
+
+                    smt = SendMessage(data)
+                    smt.start()
+                    smt.join()
                     trace_debug("Message sent to -->{}, SID: {}, TXN: {}, MSG: {}".
                                 format(receiver.address, receiver.sid, msg['txn'], msg['text']))
             else:
-                failed_response(sio, "DB STORE FAILED. MSG: {}, RAW MSG: {}".format(msg, raw_send_read_msg), address, sid)
+                failed_response(sio, "DB STORE FAILED. MSG: {}, RAW MSG: {}".format(msg, raw_send_read_msg), address,
+                                sid)
     else:
         trace_info(">>>INVALID SESSION FOR {}".format(address))
         sio.disconnect(sid)
@@ -243,6 +263,7 @@ def buyer_received(sid, c_address, scope, address, txn):
             and ack_user_session and ack_user_session.sid != sid:
         if update_message_ack(txn, current_user_session, ack_user_session.id):
             # success_response(sio, "", current_user_session.address, sid)
+            # SQS
             trace_debug("Receiver {} missing. Receive ACK to sender {}. TXN: {}".format(address, c_address, txn))
         else:
             failed_response(sio, "DB UPDATE FAILED FOR RECEIVER MISSING UPDATE. TXN {}".format(txn), c_address, sid)
@@ -268,15 +289,36 @@ def disconnect(sid):
         trace_debug("Disconnected-->{}".format(user))
         if USER_SESSION:
             user_list_response(sio, user.scope)
+            # SQS
     else:
         trace_info("Disconnected with SID:: {}. No Info on DB!".format(sid))
 
 
-if __name__ == '__main__':
+# CLUSTER --!
+@sio.event
+def cluster_send_message(sid, data):
+    trace_info("Triggered----> {}".format(data))
+    new_message_response(sio, data['scope'], data['txn'], data['text'],
+                         data['saddress'], data['raddress'], data['rsid'])
 
+    sck = SendSentACK(data)
+    sck.start()
+    sck.join()
+    sio.disconnect(sid)
+
+
+@sio.event
+def cluster_send_ack_message(sid, data):
+    trace_info("Triggered----> {}".format(data))
+    receive_ack_response(sio, data['txn'], data['scope'],
+                         data['saddress'], data['ssid'])
+    sio.disconnect(sid)
+
+
+if __name__ == '__main__':
     trace_info("Multiverse server starting at {}:{}".format(HOST, PORT))
     try:
-        eventlet_server(eventlet_listen((HOST, PORT)), app)
+        eventlet_server(eventlet_listen((HOST, int(environ.get("MULTI_WS_PORT", PORT)))), app)
     except Exception as ex:
         trace_info(str(ex))
 

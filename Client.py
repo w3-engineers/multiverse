@@ -1,38 +1,76 @@
-#!/usr/bin/env python
-
-# WS client example
-
-from asyncio import get_event_loop
-from websockets import connect
-from json import dumps, loads
-from datetime import datetime
+from socketio import Client
+from threading import Thread, Lock
 
 
-def request_builder(sender, receiver, payload, txn):
-    return dumps({"sender": sender, "receiver": receiver, "payload": payload, "txn": txn})
+#
+# sio = Client()
+# # sio.connection_url = "http://localhost:5000"
+# sio.connect("http://localhost:5000")
+#
+# sio.emit("cluster_send_message", dict("xxx"))
+# #
+# # @sio.on("connect")
+# # def con():
+# #     print("nce")
+# #
+# #
+# # @sio.on("register")
+# # def reg():
+# #     print("rego")
+# #
+# #
+# # @sio.on("disconnect")
+# # def dis():
+# #     print("disc")
+#
+# # import pdb; pdb.set_trace()
+# sio.disconnect()
+
+# sio = SocketIoHelper("http://localhost:5000")
+# sio.send_new_message(dict("xxx"))
+# # sio.close()
+# new_message_response(sio, scope, msg['txn'], msg['text'], address,
+#                                          receiver.address, receiver.sid)
 
 
-def response_parser(response):
-    response = loads(response)
-    return response
+class SendMessage(Thread):
+
+    sio = None
+    data = None
+
+    def __init__(self, data):
+        Thread.__init__(self)
+        self.data = data
+        self.sio = Client()
+        self.sio.connect("http://"+data['rurl'])
+
+    def run(self):
+        sio = self.sio
+        while True:
+            if sio.eio.state == "connected":
+                self.sio.emit("cluster_send_message", self.data)
+                break
+
+        return
 
 
-async def client():
-    async with connect(
-            'ws://localhost:8765/demo') as websocket:
-        # data = input("Put your data.")
-        data = request_builder("sabbir", "aziz", "Hello Aziz", str(datetime.now().timestamp()))
-        await websocket.send(data)
-        print(f"> {data}")
+class SendSentACK(Thread):
 
-        response = await websocket.recv()
-        response = response_parser(response)
-        if response["type"] == "ok":
-            greeting = response["response"]["payload"]
-        else:
-            greeting = "Error: "+response['response']
+    sio = None
+    data = None
 
-        print(f"< {greeting}")
+    def __init__(self, data):
+        Thread.__init__(self)
+        self.data = data
+        self.sio = Client()
+        self.sio.connect("http://"+data['surl'])
 
+    def run(self):
+        sio = self.sio
 
-get_event_loop().run_until_complete(client())
+        while True:
+            if sio.eio.state == "connected":
+                self.sio.emit("cluster_send_ack_message", self.data)
+                break
+
+        return

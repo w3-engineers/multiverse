@@ -2,3 +2,4 @@ python-socketio
 eventlet
 peewee
 mysqlclient
+python-socketio[client]

@@ -20,14 +20,14 @@ def active_user_list(scope):
     return user_list
 
 
-def set_user_info(sid, scope, address):
+def set_user_info(sid, scope, address, url):
     connect()
-    update = User.update(sid=sid, last_seen=datetime.now(), is_online=True). \
+    update = User.update(sid=sid, last_seen=datetime.now(), is_online=True, url=url). \
         where((User.scope == scope) & (User.address == address)).execute()
     if update:
         close()
         return True
-    user = User(id=uuid4(), scope=scope, address=address, sid=sid, is_online=True).save(force_insert=True)
+    user = User(id=uuid4(), scope=scope, address=address, sid=sid, is_online=True, url=url).save(force_insert=True)
     close()
     if user:
         return user
