@@ -301,21 +301,25 @@ def disconnect(sid):
 # CLUSTER --!
 @sio.event
 def cluster_send_message(sid, data):
-    trace_info("Triggered----> {}".format(data))
-    new_message_response(sio, data['scope'], data['txn'], data['text'],
-                         data['saddress'], data['raddress'], data['rsid'])
+    if get_server_info(sio, data['rsid']):
+        trace_info("Triggered----> {}".format(data))
+        new_message_response(sio, data['scope'], data['txn'], data['text'],
+                             data['saddress'], data['raddress'], data['rsid'])
 
-    sck = SendSentACK(data)
-    sck.start()
-    sck.join()
+        sck = SendSentACK(data)
+        sck.start()
+        sck.join()
+
     sio.disconnect(sid)
 
 
 @sio.event
 def cluster_send_ack_message(sid, data):
-    trace_info("Triggered----> {}".format(data))
-    receive_ack_response(sio, data['txn'], data['scope'],
-                         data['saddress'], data['ssid'])
+    if get_server_info(sio, data['ssid']):
+        trace_info("Triggered----> {}".format(data))
+        receive_ack_response(sio, data['txn'], data['scope'],
+                             data['saddress'], data['ssid'])
+
     sio.disconnect(sid)
 
 
