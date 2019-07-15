@@ -1,36 +1,7 @@
 from socketio import Client
-from threading import Thread, Lock
+from threading import Thread
 
-
-#
-# sio = Client()
-# # sio.connection_url = "http://localhost:5000"
-# sio.connect("http://localhost:5000")
-#
-# sio.emit("cluster_send_message", dict("xxx"))
-# #
-# # @sio.on("connect")
-# # def con():
-# #     print("nce")
-# #
-# #
-# # @sio.on("register")
-# # def reg():
-# #     print("rego")
-# #
-# #
-# # @sio.on("disconnect")
-# # def dis():
-# #     print("disc")
-#
-# # import pdb; pdb.set_trace()
-# sio.disconnect()
-
-# sio = SocketIoHelper("http://localhost:5000")
-# sio.send_new_message(dict("xxx"))
-# # sio.close()
-# new_message_response(sio, scope, msg['txn'], msg['text'], address,
-#                                          receiver.address, receiver.sid)
+from config import HTTP_PREFIX
 
 
 class SendMessage(Thread):
@@ -42,7 +13,7 @@ class SendMessage(Thread):
         Thread.__init__(self)
         self.data = data
         self.sio = Client()
-        self.sio.connect("http://"+data['rurl'])
+        self.sio.connect(HTTP_PREFIX+data['rurl'])
 
     def run(self):
         sio = self.sio
@@ -63,7 +34,7 @@ class SendSentACK(Thread):
         Thread.__init__(self)
         self.data = data
         self.sio = Client()
-        self.sio.connect("http://"+data['surl'])
+        self.sio.connect(HTTP_PREFIX+data['surl'])
 
     def run(self):
         sio = self.sio
