@@ -2,7 +2,7 @@ from uuid import uuid4
 from datetime import datetime
 
 from db_helper.connector import connect, close
-from db_helper.models import User, Message, MESSAGE_STATUS
+from db_helper.models import Url, User, Message, MESSAGE_STATUS
 from trace import trace_info
 from helpers import set_json
 
@@ -20,14 +20,26 @@ def active_user_list(scope):
     return user_list
 
 
+def get_urls():
+    return Url.select(Url.url)
+
+
 def set_user_info(sid, scope, address, url):
     connect()
     update = User.update(sid=sid, last_seen=datetime.now(), is_online=True, url=url). \
         where((User.scope == scope) & (User.address == address)).execute()
+
+    try:
+        Url.create(url=url)
+    except Exception as e:
+        trace_info(str(e))
+
     if update:
         close()
         return True
+
     user = User(id=uuid4(), scope=scope, address=address, sid=sid, is_online=True, url=url).save(force_insert=True)
+
     close()
     if user:
         return user
@@ -82,6 +94,7 @@ def save_send_message(session, txn, message):
 
 def update_message_ack(txn, session, offline=None):
     connect()
+
     if offline:
         result = Message.update(status=MESSAGE_STATUS['buyer']).where((Message.user_id == session.id)
                                                                     & (Message.key == txn)).execute() \
@@ -92,5 +105,4 @@ def update_message_ack(txn, session, offline=None):
         result = Message.delete().where((Message.user_id == session.id) & (Message.key == txn)).execute()
 
     close()
-
     return result

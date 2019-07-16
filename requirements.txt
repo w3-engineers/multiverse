@@ -3,3 +3,6 @@ eventlet
 peewee
 mysqlclient
 python-socketio[client]
+gevent
+gevent-websocket
+gunicorn

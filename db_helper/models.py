@@ -34,3 +34,7 @@ class Message(BaseModel):
     class Meta:
         txn = CompositeKey('key', 'user_id')
         # primary_key = CompositeKey('key', 'user_id')
+
+
+class Url(BaseModel):
+    url = CharField(max_length=100, unique=True)

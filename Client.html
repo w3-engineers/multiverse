@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Multiverse Client</title>
+<!--    <title>Multiverse Client</title>-->
     <style>
         body {
             width: 600px;
@@ -129,6 +129,7 @@
         console.log("SID:: " + socket.io.engine.id);
         connected = true;
         user_info_dom.innerHTML = "<h1>Welcome " + name + "!</h1>";
+        document.title = name;
     });
 
     function buyer_received(dom) {
@@ -266,6 +267,7 @@
         connected = false;
         console.log("SID:: " + socket.io.engine.id);
         alert("Connection closed.");
+        document.title = name + " Disconnected!";
         window.location.reload();
     });
 

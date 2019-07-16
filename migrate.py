@@ -6,7 +6,7 @@ from config import IS_DB_NEW
 
 # dbo.connect()
 
-dbo.create_tables([User, Message])
+dbo.create_tables([User, Message, Url])
 
 #
 # if IS_DB_NEW:

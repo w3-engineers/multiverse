@@ -1,6 +1,7 @@
 from helpers import set_json
 from trace import trace_info
-from db_helper.dao import active_user_list
+from db_helper.dao import active_user_list, get_urls
+from Client import UserList
 
 EMIT_FAIL = "failed"
 EMIT_SUCCESS = "success"
@@ -48,8 +49,15 @@ def user_list_response(sio, scope):
     :return: None
     """
     data = active_user_list(scope)
-    sio.emit(EMIT_USER_LIST, set_json(data))
-    trace_info(data)
+    data = set_json(data)
+    # sio.emit(EMIT_USER_LIST, jdata)
+    urls = get_urls()
+    for row in urls:
+        ul = UserList()
+        ul.work(row.url, data, EMIT_USER_LIST)
+        trace_info(ul.done())
+        trace_info(ul.result())
+        trace_info(data)
 
 
 def buyer_receive_ack_response(sio, scope, txn, receiver, sid):

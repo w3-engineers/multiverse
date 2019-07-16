@@ -3,6 +3,8 @@ from os import environ
 from eventlet.wsgi import server as eventlet_server
 from eventlet import listen as eventlet_listen
 from socketio import Server, WSGIApp
+from geventwebsocket.handler import WebSocketHandler
+from gevent import pywsgi
 
 from config import HOST, PORT, DEBUG
 from db_helper.models import MESSAGE_STATUS
@@ -12,7 +14,7 @@ from helpers import get_dict, set_json, get_session_key, get_server_socket
 from response_helper import failed_response, success_response, user_list_response, buyer_receive_ack_response, \
     new_message_response, sent_ack_response, receive_ack_response, register_response, send_info_response, EMIT_REGISTER
 from trace import trace_info, trace_debug
-from Client import SendMessage, SendSentACK, DuplicateConnectionDestroy
+from Client import SendMessage, SendSentACK, DuplicateConnectionDestroy, BuyerReceiveACK
 
 """
 TODO:: Auto Scale System Notification Implement.
@@ -21,7 +23,7 @@ Possible Solution Can be pass Server IP and make a internal emit to trigger.
 
 basicConfig(level=CRITICAL)
 
-sio = Server()
+sio = Server(async_mode='gevent')
 
 if DEBUG:
     app = WSGIApp(sio, static_files={
@@ -86,14 +88,18 @@ def no_session(sid=None, scope=None, address=None):
 
 def get_server_info(socket, sid):
     headers = socket.environ.get(sid)
-    raw_headers = headers.get('headers_raw')
-    # trace_info(headers.get('REMOTE_ADDR'))
-    # trace_info(headers.get('SERVER_NAME'))
-    # trace_info(headers.get('SERVER_PORT'))
-    if raw_headers and len(raw_headers) > 2:
-        if 'Host' in raw_headers[0]:
-            return raw_headers[0][1]
-    return headers.get("SERVER_NAME", HOST) + ":" + headers.get("SERVER_PORT", PORT)
+    if headers:
+        raw_headers = headers.get('headers_raw')
+        # trace_info(headers.get('REMOTE_ADDR'))
+        # trace_info(headers.get('SERVER_NAME'))
+        # trace_info(headers.get('SERVER_PORT'))
+
+        if raw_headers and len(raw_headers) > 2:
+            if 'Host' in raw_headers[0]:
+                return raw_headers[0][1]
+        elif headers.get("HTTP_HOST"):
+            return headers.get("HTTP_HOST")
+        return headers.get("SERVER_NAME", HOST) + ":" + headers.get("SERVER_PORT", PORT)
 
 
 def remove_session(sid):
@@ -139,7 +145,7 @@ def register(sid: str, scope: str, address: str):
                     else:
                         if user_session.url == get_server_info(sio, sid):
                             remove_session(sid)
-                            trace_info("BIG BLOCKER RECOVERED for {}".join(user_session.address))
+                            trace_info("BIG BLOCKER RECOVERED for {}".format(user_session.address))
                         else:
                             trace_debug("DUPLICATE CLUSTER BLOCK ONLINE...!")
                             dth = DuplicateConnectionDestroy()
@@ -158,54 +164,72 @@ def register(sid: str, scope: str, address: str):
             #     trace_debug(dth.result())
 
             url = get_server_info(sio, sid)
-            user_session = set_session(sid, scope, address, url)
-            if user_session:
-                success_response(sio, "Session created for {}".format(user_session.address), user_session.address, sid)
-                user_list_response(sio, scope)
-                # SQS
+            if url:
+                user_session = set_session(sid, scope, address, url)
+                if user_session:
+                    success_response(sio, "Session created for {}".format(user_session.address), user_session.address,
+                                     sid)
+                    user_list_response(sio, scope)
+                    # SQS
 
-                new_message = get_user_message(user_session)
-                if new_message:
-                    for msg in new_message:
-                        msg_dict = get_dict(msg.message)
-                        if msg.status == MESSAGE_STATUS['buyer']:
+                    new_message = get_user_message(user_session)
+                    if new_message:
+                        for msg in new_message:
+                            msg_dict = get_dict(msg.message)
+                            if msg.status == MESSAGE_STATUS['buyer']:
 
-                            if update_message_ack(msg.key, user_session):
-                                trace_debug("ACK Done and Removed for {}. ADDRESS: {}, SID:: {}. Key:: {}".
-                                            format(msg.message, user_session.address, sid, msg.key))
-                                buyer_receive_ack_response(sio, scope, msg.key, user_session.address, sid)
+                                if update_message_ack(msg.key, user_session):
+                                    trace_debug("ACK Done and Removed for {}. ADDRESS: {}, SID:: {}. Key:: {}".
+                                                format(msg.message, user_session.address, sid, msg.key))
+                                    buyer_receive_ack_response(sio, scope, msg.key, user_session.address, sid)
+
+                                else:
+                                    failed_response(sio, "DB ERROR FOR ACK {}. user {}. Message Key:: {}".
+                                                    format(msg.message, user_session.address, msg.key),
+                                                    user_session.address, user_session.sid)
                             else:
+                                new_message_response(sio, scope, msg.key, msg_dict.get('text', None),
+                                                     msg_dict.get('sender', None), user_session.address, sid)
 
-                                failed_response(sio, "DB ERROR FOR ACK {}. user {}. Message Key:: {}".
-                                                format(msg.message, user_session.address, msg.key),
-                                                user_session.address, user_session.sid)
-                        else:
-                            new_message_response(sio, scope, msg.key, msg_dict.get('text', None),
-                                                 msg_dict.get('sender', None), user_session.address, sid)
+                            receiver = get_session(scope, msg_dict.get('sender', None), False)
 
-                        receiver = get_session(scope, msg_dict.get('sender', None))
-
-                        # If Sender and receiver both are available
-                        if receiver and get_server_socket(sio, receiver.sid):
-                            # send receive ack for receive to receiver
-                            receive_ack_response(sio, msg_dict['txn'], scope, receiver.address, receiver.sid)
-                            if update_message_ack(msg_dict["txn"], receiver):
-                                # send receive ack for buyer/targeted user
-                                buyer_receive_ack_response(sio, scope, msg_dict['txn'], receiver.address, receiver.sid)
-                                trace_debug("ACK DONE and removed {} with SID:: {}, TXN:: {}".
-                                            format(receiver.address, receiver.sid, msg_dict['txn']))
-                        else:
-                            # SQS
-
-                            trace_info("---------Receiver missing check sockets-------")
-                            trace_info(receiver)
-                            trace_debug("Receiver {} not found. TXN:: {}".format(msg_dict['sender'], msg_dict['txn']))
-                            trace_debug("SESSION: {}, SID: {}".format(USER_SESSION, SESSION_SID))
+                            # If Sender and receiver both are available
+                            if receiver:
+                                if get_server_socket(sio, receiver.sid):
+                                    # send receive ack for receive to receiver
+                                    receive_ack_response(sio, msg_dict['txn'], scope, receiver.address, receiver.sid)
+                                    if update_message_ack(msg_dict["txn"], receiver):
+                                        # send receive ack for buyer/targeted user
+                                        buyer_receive_ack_response(sio, scope, msg_dict['txn'], receiver.address,
+                                                                   receiver.sid)
+                                        trace_debug("ACK DONE and removed {} with SID:: {}, TXN:: {}".
+                                                    format(receiver.address, receiver.sid, msg_dict['txn']))
+                                else:
+                                    buyer_ack_pool = BuyerReceiveACK()
+                                    buyer_ack_pool.work(dict(rid=receiver.id, raddress=receiver.address,
+                                                             rurl=receiver.url,
+                                                             rsid=receiver.sid, txn=msg_dict['txn'], scope=scope,
+                                                             # surl=user_session.url,
+                                                             # saddress=user_session.address,
+                                                             # ssid=user_session.sid
+                                                             ))
+                                    trace_debug(buyer_ack_pool.done())
+                                    trace_debug(buyer_ack_pool.result())
+                            else:
+                                # SQS
+                                trace_info("---------Receiver missing check sockets-------")
+                                trace_info(receiver)
+                                trace_debug(
+                                    "Receiver {} not found. TXN:: {}".format(msg_dict['sender'], msg_dict['txn']))
+                                trace_debug("SESSION: {}, SID: {}".format(USER_SESSION, SESSION_SID))
+                    else:
+                        trace_debug("No message found for {}, SID:: {}".format(address, sid))
                 else:
-                    trace_debug("No message found for {}, SID:: {}".format(address, sid))
+                    failed_response(sio, "User session establishment failed for {}. Try again.".format(address),
+                                    address, sid)
+                    sio.disconnect(sid)
             else:
-                failed_response(sio, "User session establishment failed for {}. Try again.".format(address),
-                                address, sid)
+                failed_response(sio, "Invalid URL/Server for {} with {}".format(address, sid), address, sid)
                 sio.disconnect(sid)
     else:
         trace_info("USER SESSION:: {}".format(USER_SESSION))
@@ -249,22 +273,18 @@ def send_message(sid, scope, address, message):
                     trace_debug("Message received by -->{}, SID: {}, TXN: {}, MSG: {}".
                                 format(receiver.address, receiver.sid, msg['txn'], msg['text']))
                 else:
-                    # SQS
                     sent_ack_response(sio, msg['txn'], scope, user_session.address, sid)
+                    trace_debug("Message sent to -->{}, SID: {}, TXN: {}, MSG: {}".
+                                format(receiver.address, receiver.sid, msg['txn'], msg['text']))
+
                     data = dict(rurl=receiver.url, surl=user_session.url, scope=scope, txn=msg['txn'],
                                 text=msg['text'], saddress=address, ssid=user_session.sid,
                                 raddress=receiver.address, rsid=receiver.sid)
 
-                    # smt = SendMessage(data)
-                    # smt.start()
-                    # smt.join()
                     smt = SendMessage()
                     smt.work(data)
                     trace_debug(smt.done())
                     trace_debug(smt.result())
-
-                    trace_debug("Message sent to -->{}, SID: {}, TXN: {}, MSG: {}".
-                                format(receiver.address, receiver.sid, msg['txn'], msg['text']))
             else:
                 failed_response(sio, "DB STORE FAILED. MSG: {}, RAW MSG: {}".format(msg, raw_send_read_msg), address,
                                 sid)
@@ -277,17 +297,77 @@ def send_message(sid, scope, address, message):
 def buyer_received(sid, c_address, scope, address, txn):
     ack_user_session = get_session(scope, address, False)
     current_user_session = get_session(scope, c_address, False)
-    if ack_user_session and get_server_socket(sio, ack_user_session.sid) \
-            and current_user_session and get_server_socket(sio, current_user_session.sid) \
-            and current_user_session.sid == sid:
-        if update_message_ack(txn, current_user_session):
+    if ack_user_session and current_user_session:
+
+        if get_server_socket(sio, ack_user_session.sid) and \
+                get_server_socket(sio, current_user_session.sid) and \
+                update_message_ack(txn, current_user_session):
             trace_debug("Receive Ack Done for both-->{}, {}".format(ack_user_session.address, ack_user_session.sid))
             buyer_receive_ack_response(sio, scope, txn, ack_user_session.address, ack_user_session.sid)
             buyer_receive_ack_response(sio, scope, txn, current_user_session.address, current_user_session.sid)
+        elif get_server_socket(sio, ack_user_session.sid):
+            trace_debug("Only ACK Buyer")
+            buyer_ack_pool = BuyerReceiveACK()
+            buyer_ack_pool.work(dict(scope=scope, txn=txn,
+                                     rurl=current_user_session.url,
+                                     rsid=current_user_session.sid,
+                                     rid=current_user_session.id,
+                                     raddress=current_user_session.address,
+
+                                     sid=current_user_session.id,
+                                     surl=current_user_session.url,
+                                     saddress=current_user_session.address,
+                                     ssid=current_user_session.sid
+                                     ))
+            trace_debug(buyer_ack_pool.done())
+            trace_debug(buyer_ack_pool.result())
+            # buyer_receive_ack_response(sio, scope, txn, ack_user_session.address, ack_user_session.sid)
+        elif get_server_socket(sio, current_user_session.sid):
+            trace_debug("Only CURRENT Buyer")
+            if update_message_ack(txn, current_user_session, ack_user_session.id):
+                buyer_ack_pool = BuyerReceiveACK()
+                buyer_ack_pool.work(dict(scope=scope, txn=txn,
+                                         rurl=ack_user_session.url,
+                                         rsid=ack_user_session.sid,
+                                         rid=ack_user_session.id,
+                                         raddress=ack_user_session.address,
+
+                                         sid=current_user_session.id,
+                                         surl=current_user_session.url,
+                                         saddress=current_user_session.address,
+                                         ssid=current_user_session.sid
+                                         ))
+                trace_debug(buyer_ack_pool.done())
+                trace_debug(buyer_ack_pool.result())
+                # buyer_receive_ack_response(sio, scope, txn, current_user_session.address, current_user_session.sid)
+            else:
+                failed_response(sio, "DB UPDATE FAILED FOR RECEIVER MISSING WHILE ON THREAD. TXN {}".format(txn),
+                                c_address,
+                                sid)
         else:
-            trace_debug(current_user_session)
-            trace_debug("---**DB ERROR WHILE DELETE!**----")
-            failed_response(sio, "DB ERROR WHILE DELETE", c_address, sid)
+            trace_debug("No ACK/BUYER")
+            if update_message_ack(txn, current_user_session, ack_user_session.id):
+                ack_pool = BuyerReceiveACK()
+                ack_pool.work(dict(scope=scope, txn=txn, rsid=ack_user_session.sid, rurl=ack_user_session.url,
+                                   rid=ack_user_session.id, raddress=ack_user_session.address,
+
+                                   sid=current_user_session.id,
+                                   surl=current_user_session.url,
+                                   saddress=current_user_session.address,
+                                   ssid=current_user_session.sid))
+                trace_debug(ack_pool.done())
+                trace_debug(ack_pool.result())
+                #
+                # cack_pool = BuyerReceiveACK()
+                # cack_pool.work(dict(scope=scope, txn=txn, rsid=current_user_session.sid,
+                #                     rid=current_user_session.id, rurl=current_user_session.url,
+                #                     raddress=current_user_session.address))
+                # trace_debug(cack_pool.done())
+                # trace_debug(cack_pool.result())
+            else:
+                failed_response(sio, "DB UPDATE FAILED AS NO USER IN THIS CLUSTER. {}, {}".format(address, c_address),
+                                c_address, sid)
+
     elif current_user_session and current_user_session.sid == sid \
             and get_server_socket(sio, sid) \
             and ack_user_session and ack_user_session.sid != sid:
@@ -329,22 +409,26 @@ def disconnect(sid):
 # CLUSTER --!
 @sio.event
 def cluster_send_message(sid, data):
-    if get_server_info(sio, data['rsid']):
+    if get_server_socket(sio, data['rsid']):
         trace_info("SEND Triggered----> {}".format(data))
         new_message_response(sio, data['scope'], data['txn'], data['text'],
                              data['saddress'], data['raddress'], data['rsid'])
 
-        sck = SendSentACK()
-        sck.work(data)
-        trace_debug(sck.done())
-        trace_debug(sck.result())
+        if get_server_socket(sio, data['ssid']):
+            receive_ack_response(sio, data['txn'], data['scope'],
+                                 data['saddress'], data['ssid'])
+        else:
+            sck = SendSentACK()
+            sck.work(data)
+            trace_debug(sck.done())
+            trace_debug(sck.result())
 
     sio.disconnect(sid)
 
 
 @sio.event
 def cluster_send_ack_message(sid, data):
-    if get_server_info(sio, data['ssid']):
+    if get_server_socket(sio, data['ssid']):
         trace_info("ACK Triggered----> {}".format(data))
         receive_ack_response(sio, data['txn'], data['scope'],
                              data['saddress'], data['ssid'])
@@ -353,8 +437,53 @@ def cluster_send_ack_message(sid, data):
 
 
 @sio.event
+def cluster_buyer_receive_ack(sid, data):
+    class Receiver:
+        def __init__(self, rid, address, rsid):
+            self.id = rid
+            self.address = address
+            self.sid = rsid
+
+    receiver = Receiver(data['rid'], data['raddress'], data['rsid'])
+
+    if get_server_socket(sio, receiver.sid):
+        update_message_ack(data["txn"], receiver)
+        # send receive ack for buyer/targeted user
+        buyer_receive_ack_response(sio, data['scope'], data['txn'], receiver.address, receiver.sid)
+        trace_debug("CLUSTER ACK DONE and removed {} with SID:: {}, TXN:: {}".
+                    format(receiver.address, receiver.sid, data['txn']))
+
+        if data.get("ssid"):
+            if get_server_socket(sio, data['ssid']):
+                receiver = Receiver(data['sid'], data['saddress'], data['ssid'])
+                update_message_ack(data['txn'], receiver)
+                buyer_receive_ack_response(sio, data['scope'], data['txn'], receiver.address, receiver.sid)
+            else:
+                buyer_ack_pool = BuyerReceiveACK()
+
+                buyer_ack_pool.work(dict(scope=data['scope'], txn=data['txn'],
+                                         rurl=data['surl'],
+                                         rsid=data['ssid'],
+                                         rid=data['sid'],
+                                         raddress=data['saddress']))
+                trace_debug(buyer_ack_pool.done())
+                trace_debug(buyer_ack_pool.result())
+
+            trace_debug("ACK DONE and removed for sender in cluster {} with SID:: {}, TXN:: {}".
+                        format(data['saddress'], data['ssid'], data['txn']))
+
+    sio.disconnect(sid)
+
+
+# @sio.event
+# def cluster_user_list(sid, scope):
+#     user_list_response(sio, scope)
+#     sio.disconnect(sid)
+
+
+@sio.event
 def cluster_destroy_connection(sid, data):
-    if get_server_info(sio, data['sid']):
+    if get_server_socket(sio, data['sid']):
         trace_info("Disconnection Triggered----> {}".format(data))
         sio.disconnect(data['sid'])
     sio.disconnect(sid)
@@ -362,9 +491,12 @@ def cluster_destroy_connection(sid, data):
 
 if __name__ == '__main__':
     trace_info("Multiverse server starting at {}:{}".format(HOST, PORT))
-    try:
-        eventlet_server(eventlet_listen((HOST, int(environ.get("MULTI_WS_PORT", PORT)))), app)
-    except Exception as ex:
-        trace_info(str(ex))
+    # try:
+    #     eventlet_server(eventlet_listen((HOST, int(environ.get("MULTI_WS_PORT", PORT))), reuse_port=True), app,
+    #                     socket_timeout=200)
+    # except Exception as ex:
+    #     trace_info(str(ex))
+
+    pywsgi.WSGIServer((HOST, int(environ.get("MULTI_WS_PORT", PORT))), app, handler_class=WebSocketHandler).serve_forever()
 
 # https://socket.io/docs/using-multiple-nodes/
