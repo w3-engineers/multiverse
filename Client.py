@@ -1,90 +1,79 @@
 from socketio import Client, exceptions
-from threading import Thread
+from concurrent.futures import ThreadPoolExecutor
 
 from config import HTTP_PREFIX
 from trace import trace_info
 
 
-class CThread(Thread):
+class CPool:
+    pool = None
+    future = None
     sio = None
-    data = None
 
-
-class SendMessage(CThread):
-
-    sio = None
-    data = None
-
-    def __init__(self, data):
-        CThread.__init__(self)
-        self.data = data
+    def __init__(self, item=1):
         self.sio = Client()
+        self.pool = ThreadPoolExecutor(item)
 
-    def run(self):
+    def submit(self, func, *args):
+        self.future = self.pool.submit(func, *args)
+        return self.future
+
+    def done(self):
+        return self.future.done()
+
+    def result(self):
+        return self.future.result()
+
+
+class SendMessage(CPool):
+
+    def work(self, data):
+        return self.submit(self.send_message, data)
+
+    def send_message(self, data):
         try:
-            self.sio.connect(HTTP_PREFIX+self.data['rurl'])
-            sio = self.sio
+            self.sio.connect(HTTP_PREFIX+data['rurl'])
             while True:
-                if sio.eio.state == "connected":
-                    self.sio.emit("cluster_send_message", self.data)
-                    trace_info("BREAK")
+                if self.sio.eio.state == "connected":
+                    self.sio.emit("cluster_send_message", data)
                     break
-                else:
-                    trace_info("DIS_SEN")
         except exceptions.ConnectionError as e:
             trace_info(str(e))
             return
+        return True
 
-        return
 
+class SendSentACK(CPool):
+    def work(self, data):
+        return self.submit(self.send_ack, data)
 
-class SendSentACK(CThread):
+    def send_ack(self, data):
 
-    sio = None
-    data = None
-
-    def __init__(self, data):
-        CThread.__init__(self)
-        self.data = data
-        self.sio = Client()
-        self.sio.connect(HTTP_PREFIX+data['surl'])
-
-    def run(self):
         try:
-            sio = self.sio
+            self.sio.connect(HTTP_PREFIX + data['surl'])
             while True:
-                if sio.eio.state == "connected":
-                    self.sio.emit("cluster_send_ack_message", self.data)
-                    trace_info("BREAK_ACK")
+                if self.sio.eio.state == "connected":
+                    self.sio.emit("cluster_send_ack_message", data)
                     break
-                else:
-                    trace_info("DIS_ACK")
         except exceptions.ConnectionError as ex:
             trace_info(str(ex))
             return
+        return True
 
-        return
 
+class DuplicateConnectionDestroy(CPool):
+    def work(self, data):
+        return self.submit(self.disconnect, data)
 
-class DuplicateConnectionDestroy(CThread):
-    def __init__(self, data):
-        CThread.__init__(self)
-        self.data = data
-        self.sio = Client()
-        self.sio.connect(HTTP_PREFIX + data['surl'])
-
-    def run(self):
+    def disconnect(self, data):
         try:
-            sio = self.sio
             while True:
-                if sio.eio.state == "connected":
-                    self.sio.emit("cluster_destroy_connection", self.data)
-                    trace_info("BREAK_DESTROY")
+                self.sio.connect(HTTP_PREFIX + data['surl'])
+                if self.sio.eio.state == "connected":
+                    self.sio.emit("cluster_destroy_connection", data)
                     break
-                else:
-                    trace_info("DIS_DESTROY")
         except exceptions.ConnectionError as ex:
             trace_info(str(ex))
-            return True
+            return False
 
         return True

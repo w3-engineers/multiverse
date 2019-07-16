@@ -66,10 +66,10 @@ def get_session(scope, address, online=True):
     elif not online:
         user = get_user_info(scope, address, online)
         return user
-    else:
-        user = get_user_info(scope, address)
-        if user and user.is_online:
-            return user
+    # else:
+    #     user = get_user_info(scope, address)
+    #     if user and user.is_online:
+    #         return user
     trace_debug("No session found for {}".format(address))
 
 
@@ -131,7 +131,7 @@ def register(sid: str, scope: str, address: str):
         if scope not in SCOPE_WHITE_LIST:
             failed_response(sid, "Wrong APP/Scope", address, sid)
         else:
-            user_session = get_session(scope, address)
+            user_session = get_session(scope, address, False)
             if user_session and user_session.is_online == 1:
                 try:
                     if get_server_socket(sio, user_session.sid):
@@ -141,14 +141,21 @@ def register(sid: str, scope: str, address: str):
                             remove_session(sid)
                             trace_info("BIG BLOCKER RECOVERED for {}".join(user_session.address))
                         else:
-                            trace_debug("DUPLICATE CLUSTER BLOCK")
-                            dth = DuplicateConnectionDestroy(dict(sid=user_session.sid, surl=user_session.url))
-                            dth.start()
-                            dth.join()
-                            trace_debug("Disconnection from other server")
+                            trace_debug("DUPLICATE CLUSTER BLOCK ONLINE...!")
+                            dth = DuplicateConnectionDestroy()
+                            dth.work(dict(sid=user_session.sid, surl=user_session.url))
+                            trace_debug(dth.done())
+                            trace_debug(dth.result())
+
                 except KeyError as e:
                     trace_debug(str(e) + "-->No SID available on server as {}".format(user_session.sid))
                     remove_session(user_session.sid)
+            # elif user_session:
+            #     trace_debug("DUPLICATE CLUSTER BLOCK OFFLINE")
+            #     dth = DuplicateConnectionDestroy()
+            #     dth.work(dict(sid=user_session.sid, surl=user_session.url))
+            #     trace_debug(dth.done())
+            #     trace_debug(dth.result())
 
             url = get_server_info(sio, sid)
             user_session = set_session(sid, scope, address, url)
@@ -248,9 +255,14 @@ def send_message(sid, scope, address, message):
                                 text=msg['text'], saddress=address, ssid=user_session.sid,
                                 raddress=receiver.address, rsid=receiver.sid)
 
-                    smt = SendMessage(data)
-                    smt.start()
-                    smt.join()
+                    # smt = SendMessage(data)
+                    # smt.start()
+                    # smt.join()
+                    smt = SendMessage()
+                    smt.work(data)
+                    trace_debug(smt.done())
+                    trace_debug(smt.result())
+
                     trace_debug("Message sent to -->{}, SID: {}, TXN: {}, MSG: {}".
                                 format(receiver.address, receiver.sid, msg['txn'], msg['text']))
             else:
@@ -322,9 +334,10 @@ def cluster_send_message(sid, data):
         new_message_response(sio, data['scope'], data['txn'], data['text'],
                              data['saddress'], data['raddress'], data['rsid'])
 
-        sck = SendSentACK(data)
-        sck.start()
-        sck.join()
+        sck = SendSentACK()
+        sck.work(data)
+        trace_debug(sck.done())
+        trace_debug(sck.result())
 
     sio.disconnect(sid)
 
