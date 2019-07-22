@@ -11,7 +11,7 @@ def active_user_list(scope):
     connect()
     user_list = []
     valid_info = User.select(User.address).where(
-        (User.scope == scope) & (User.is_online == True))
+        (User.scope == scope) & (User.is_online == True)).order_by(User.last_seen.asc())
 
     for row in valid_info:
         user_list.append(row.address)
@@ -68,7 +68,7 @@ def update_user_online_info(sid):
 def get_user_message(session):
     connect()
     if session and session.id:
-        result = Message.select().where((Message.user_id == session.id))
+        result = Message.select().where((Message.user_id == session.id)).order_by(Message.created_on.desc())
         close()
         return result
 
