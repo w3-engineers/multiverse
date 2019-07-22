@@ -12,16 +12,9 @@ class User extends Model {
 
 User.init(
     {
-        id: {
-            type: UUID,
-            primaryKey: true,
-            defaultValue: UUIDV4
-        },
         address: {
-            type: STRING(50),
-        },
-        scope: {
-            type: STRING(50)
+            type: STRING(42),
+            primaryKey: true
         },
         sid: {
             type: STRING(50),
@@ -33,9 +26,7 @@ User.init(
             defaultValue: 1
         }
 
-    }, {sequelize: DB, indexes:[
-            {name: "primary_scope_address", unique: true, fields:["address", "scope"]}
-        ]}
+    }, {sequelize: DB}
 );
 
 class Message extends Model{
@@ -58,7 +49,7 @@ Message.init({
         defaultValue:0
     }
 }, {sequelize: DB, indexes:[
-        {name: "userId_txn", unique: true, fields: ["userId", "txn"]}
+        {name: "userId_txn", unique: true, fields: ["userAddress", "txn"]}
     ]});
 
 // User.hasMany(Message, {onDelete: "CASCADE"});
