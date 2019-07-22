@@ -68,7 +68,7 @@ def update_user_online_info(sid):
 def get_user_message(session):
     connect()
     if session and session.id:
-        result = Message.select().where((Message.user_id == session.id)).order_by(Message.created_on.desc())
+        result = Message.select().where((Message.user_id == session.id)).order_by(Message.created_on.asc())
         close()
         return result
 
