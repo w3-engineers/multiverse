@@ -131,3 +131,4 @@ config.py
 
 mysqldata
 /.vscode
+node_modules
