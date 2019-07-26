@@ -69,9 +69,11 @@ def get_session(scope, address, online=True):
 
 def no_session(sid=None, scope=None, address=None):
     if SESSION_SID.get(sid):
+        trace_debug(sid+" Duplicate session SID found for "+address)
         sio.disconnect(sid)
         return False
     elif USER_SESSION.get(get_session_key(scope, address)):
+        trace_debug(sid + " Duplicate session found for " + address)
         sio.disconnect(sid)
         return False
 
@@ -117,6 +119,7 @@ def register(sid: str, scope: str, address: str):
             if user_session and user_session.is_online == 1:
                 try:
                     if get_server_socket(sio, user_session.sid):
+                        trace_debug("DUPLICATE WHILE IN REGISTRATION BLOCK {}, {}".format(address, sid))
                         sio.disconnect(user_session.sid)
                 except KeyError as e:
                     trace_debug(str(e) + "-->No SID available on server as {}".format(user_session.sid))
@@ -262,7 +265,7 @@ def buyer_received(sid, c_address, scope, address, txn):
 def disconnect(sid):
     user = remove_session(sid)
     if user:
-        trace_debug("Disconnected-->{}".format(user))
+        trace_debug("Disconnected--> Address: {}, SID: {}/{}".format(user.address, user.sid, sid))
         if USER_SESSION:
             user_list_response(sio, user.scope)
     else:
