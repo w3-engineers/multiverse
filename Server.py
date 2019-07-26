@@ -219,7 +219,8 @@ def send_message(sid, scope, address, message):
             else:
                 failed_response(sio, "DB STORE FAILED. MSG: {}, RAW MSG: {}".format(msg, raw_send_read_msg), address, sid)
     else:
-        trace_info(">>>INVALID SESSION FOR {}".format(address))
+        reason = ">>>INVALID SESSION FOR {}".format(address)
+        failed_response(sio, reason, address, sid)
         sio.disconnect(sid)
 
 
