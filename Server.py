@@ -193,7 +193,7 @@ def send_info(sid, scope, sender, receiver, info):
 @sio.event
 def send_message(sid, scope, address, message):
     user_session = get_session(scope, address)
-    if user_session.sid == sid:
+    if user_session and user_session.sid == sid:
         # trace_debug("Name={}. Message={}".format(address, message))
         msg = get_dict(message)
         receiver = get_session(scope, msg['receiver'], False)
